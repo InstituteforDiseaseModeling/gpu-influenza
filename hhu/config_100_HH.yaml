@@ -1,0 +1,51 @@
+population: 100
+
+labels:
+    household:
+        distribution: choice
+        selection: ["HH_1", "HH_2", "HH_3", "HH_4", "HH_5", "HH_6", "HH_7", "HH_8", "HH_9", "HH_10"]
+        p: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+        transmission:
+            type: list
+            list: ["HH_1", "HH_2", "HH_3", "HH_4", "HH_5", "HH_6", "HH_7", "HH_8", "HH_9", "HH_10"]
+            multiplier: [[1.0, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
+                        [0.01, 1.0, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
+                        [0.01, 0.01, 1.0, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
+                        [0.01, 0.01, 0.01, 1.0, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
+                        [0.01, 0.01, 0.01, 0.01, 1.0, 0.01, 0.01, 0.01, 0.01, 0.01],
+                        [0.01, 0.01, 0.01, 0.01, 0.01, 1.0, 0.01, 0.01, 0.01, 0.01],
+                        [0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 1.0, 0.01, 0.01, 0.01],
+                        [0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 1.0, 0.01, 0.01],
+                        [0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 1.0, 0.01],
+                        [0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 1.0]
+                        ]
+
+infection:
+    infectivity: 0.1
+    duration_infection:
+        distribution: poisson
+        mean: 2
+    initial_prevalence: 0.01
+
+simulation:
+    total_time: 30
+    seeding_time: [0]
+
+
+reports:
+  #output directory
+  output_directory: output/
+
+  labels:
+    household:
+      type: list
+      values: ["HH_1", "HH_2", "HH_3", "HH_4", "HH_5", "HH_6", "HH_7", "HH_8", "HH_9", "HH_10"]
+
+  plots:
+    enabled: true
+    output_directory: plots/
+
+logging:
+    default: info
+    simulation: info
+    #    individual: debug

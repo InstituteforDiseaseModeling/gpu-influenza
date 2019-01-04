@@ -1,0 +1,53 @@
+population: 10
+
+labels:
+    age:
+        distribution: binned_uniform
+        bins: [0, 10, 100]
+        cumulative_p: [0.5, 1.0]
+        transmission:
+            type: bins
+            bins: [0, 10, 100]
+            multiplier: [[1.0, 0.0], [0.0, 1.0]]
+
+    location:
+        distribution: choice
+        selection: ["loc_1", "loc_2"]
+        p: [1.0, 0.0]
+        transmission:
+            type: list
+            list: ["loc_1", "loc_2"]
+            multiplier: [[1.0, 0.0], [0.0, 1.0]]
+
+infection:
+    infectivity: 0.2
+    duration_infection:
+        distribution: poisson
+        mean: 3
+    initial_prevalence: 0.1
+
+simulation:
+    total_time: 10
+    seeding_time: [0]
+
+
+reports:
+  #output directory
+  output_directory: output/
+
+  labels:
+    age:
+      type: bins
+      values: [0, 10, 100]
+    location:
+      type: list
+      values: ["loc_1", "loc_2"]
+
+  plots:
+    enabled: true
+    output_directory: plots/
+
+logging:
+    default: info
+    simulation: debug
+    #    individual: debug
