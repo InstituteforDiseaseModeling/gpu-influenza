@@ -70,3 +70,51 @@ __global__ void initialize_prng(curandState* pPrngState, uint32_t population, ui
         curand_init(individual, 0, 0, pPrngState + individual);
     }
 }
+
+__device__ bool contains(IND_TYPE* neighbors, uint32_t count, IND_TYPE neighbor)
+{
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        if ( neighbors[i] == neighbor )
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+// TODO - determine appropriate R0 and thus "strength" below.
+// Consider "Modeling influenza epidemics and pandemics: insights into the future of swine flu (H1N1)"
+//          "https://www.ncbi.nlm.nih.gov/pubmed/19545404"
+// "The R0 for novel influenza A (H1N1) has recently been estimated to be between 1.4 and 1.6.
+//  This value is below values of R0 estimated for the 1918-1919 pandemic strain (mean R0 approximately 2: range 1.4 to 2.8)
+//  and is comparable to R0 values estimated for seasonal strains of influenza (mean R0 1.3: range 0.9 to 2.1)."
+
+__global__ void setup_network(
+    IND_TYPE* network, CON_TYPE* connections,
+    uint32_t population_count, uint32_t connection_count,
+    float infectious_duration, float r0,
+    curandState* pPrngStates)
+{
+    uint32_t individual = (blockDim.x * blockIdx.x) + threadIdx.x;
+
+    if ( individual < population_count )
+    {
+        IND_TYPE* neighbors = network +     (connection_count * individual);
+        CON_TYPE* weights   = connections + (connection_count * individual);
+        for (uint32_t connection = 0; connection < connection_count; ++connection)
+        {
+            uint32_t neighbor;
+            do
+            {
+                neighbor = curand(pPrngStates + individual) % population_count;
+            }
+            while (contains(neighbors, connection, neighbor));
+
+            neighbors[connection] = neighbor;
+            // TODO - consider distribution around this value? Gaussian/normal?
+            weights[connection] = r0 / (infectious_duration * connection_count);
+        }
+    }
+}
