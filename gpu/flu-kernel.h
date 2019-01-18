@@ -15,6 +15,7 @@ __global__ void setup_network(
     curandState* prngStates);
 
 __global__ void flu_kernel(
+    uint32_t simulation_step,       // RO
     uint32_t population_size,       // RO
     uint32_t max_connections,       // RO
     float mean_duration,            // RO
@@ -28,5 +29,7 @@ __global__ void flu_kernel(
     IND_TYPE* infected_queue_out,   // WO
     TIMER_TYPE* timers_out,         // WO
     uint32_t* infected_count,       // WO
+    uint32_t* transmission_count,   // RW
+    TxEvent* transmission_events,   // WO
     curandState* prngStates         // RW
 );

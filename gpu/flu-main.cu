@@ -42,6 +42,7 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config);
 
 void AllocateState(SimulationState& state, Configuration& config);
 void InitializeState(SimulationState& state, Configuration& config);
+void WriteTransmissionEventsToFile( SimulationState& state );
 
 void DisplayNetwork( SimulationState& state );
 void DisplayInfected( IND_TYPE* queue, TIMER_TYPE* timers, uint32_t count );
@@ -70,26 +71,28 @@ int main(int argc, const char* argv[])
     TIMER_TYPE* current_timers;
 
     auto start = clock();
-    for (uint32_t t = 0; t < config.simulation_steps; ++t)
+    for (uint32_t step = 0; step < config.simulation_steps; ++step)
     {
         state.counters->infected_previously = state.counters->infected_currently;
         state.counters->infected_currently = 0;
 
-        previously_infected = ((t & 1) ? state.queue_b : state.queue_a);
-        currently_infected  = ((t & 1) ? state.queue_a : state.queue_a);
-        previous_timers = ((t & 1) ? state.timers_b : state.timers_a);
-        current_timers  = ((t & 1) ? state.timers_a : state.timers_b);
+        previously_infected = ((step & 1) ? state.queue_b : state.queue_a);
+        currently_infected  = ((step & 1) ? state.queue_a : state.queue_b);
+        previous_timers = ((step & 1) ? state.timers_b : state.timers_a);
+        current_timers  = ((step & 1) ? state.timers_a : state.timers_b);
 
         grid.x = (state.counters->infected_previously + block.x - 1) / block.x;
         if ( grid.x > 0 )
         {
             flu_kernel<<<grid, block>>>(
+                step,
                 state.population_size, state.max_connections,
                 config.infectious_duration,
                 state.network_m, state.connect_m,
                 previously_infected, previous_timers, state.counters->infected_previously,
                 state.infected_v, state.recovered_v,
                 currently_infected, current_timers, &state.counters->infected_currently,
+                &state.counters->transmissions, state.tx_events,
                 state.prngStates
             );
             CheckReturn(cudaDeviceSynchronize());
@@ -98,19 +101,21 @@ int main(int argc, const char* argv[])
             if ( config.debug )
             {
                 uint32_t w = uint32_t(log10(config.simulation_steps)) + 1;
-                std::cout << std::setw(w) << t << ": " << state.counters->infected_currently << " infected." << std::endl;
+                std::cout << std::setw(w) << step << ": " << state.counters->infected_currently << " infected." << std::endl;
             }
 
             DisplayInfected( currently_infected, current_timers, state.counters->infected_currently );
         }
         else
         {
-            std::cout << "No remaining infected at time step " << t << '.' << std::endl;
+            std::cout << "No remaining infected at time step " << step << '.' << std::endl;
             break;
         }
     }
     auto end = clock();
     std::cout << (1000 * uint64_t(end - start) / double(CLOCKS_PER_SEC)) << " milliseconds for simulation." << std::endl;
+
+    WriteTransmissionEventsToFile( state );
 
     return 0;
 }
@@ -219,6 +224,7 @@ void AllocateState(SimulationState& state, Configuration& config)
     CheckReturn(cudaMallocManaged(&state.timers_b,    config.population_size * sizeof(TIMER_TYPE)));
     CheckReturn(cudaMallocManaged(&state.infected_v,  config.population_size * sizeof(INF_TYPE)));
     CheckReturn(cudaMallocManaged(&state.recovered_v, config.population_size * sizeof(MASK_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.tx_events,   config.population_size * sizeof(TxEvent)));
     CheckReturn(cudaMallocManaged(&state.counters,    sizeof(Counters)));
 }
 
@@ -304,4 +310,13 @@ void ZeroVectors(SimulationState& state)
 {
     memset(state.infected_v,  0, state.population_size * sizeof(INF_TYPE));
     memset(state.recovered_v, 0, state.population_size * sizeof(MASK_TYPE));
+}
+
+void WriteTransmissionEventsToFile( SimulationState& state )
+{
+    char* filename = "transmissions.bin";
+    auto file = fopen( filename, "wb" );
+    std::cout << "Writing " << state.counters->transmissions << " transmission events to " << filename << std::endl;
+    fwrite( state.tx_events, sizeof(TxEvent), state.counters->transmissions, file );
+    fclose(file);
 }

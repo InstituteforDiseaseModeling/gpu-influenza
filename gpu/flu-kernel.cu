@@ -4,12 +4,15 @@
 #include "block-size.h"
 
 __global__ void flu_kernel(
+    uint32_t simulation_step,                                                   // RO
     uint32_t population_size, uint32_t connection_count,                        // RO
     float mean_duration,                                                        // RO
     IND_TYPE* network_m, CON_TYPE* connect_m,                                   // RO
     IND_TYPE* infected_q_in, TIMER_TYPE* timers_in, uint32_t queue_size,        // RO
     INF_TYPE* infected_v, MASK_TYPE* recovered_v,                               // R/W
     IND_TYPE* infected_q_out, TIMER_TYPE* timers_out, uint32_t* queue_count,    // WO
+    uint32_t* transmission_count,                                               // RW
+    TxEvent* transmission_events,                                               // WO
     curandState* prngStates)                                                    // R/W
 {
     uint32_t infected_index = (blockDim.x * blockIdx.x) + threadIdx.x;
@@ -26,7 +29,7 @@ __global__ void flu_kernel(
         for (uint32_t neighbor_index = 0; neighbor_index < connection_count; ++neighbor_index)
         {
             IND_TYPE target_individual = neighbors[neighbor_index];
-            // TODO - ignore infected_v[target_individual] here to track super-infection?
+            // TODO - ignore infected_v[target_individual] here to allow super-infection?
             if (!infected_v[target_individual] && !recovered_v[target_individual])
             {
                 curandState* prngState = prngStates + source_individual;
@@ -40,9 +43,13 @@ __global__ void flu_kernel(
 
                         infected_q_out[queue_index] = target_individual;
                         int32_t duration = curand_poisson(prngState, mean_duration);
-                        timers_out[queue_index] = TIMER_TYPE(duration+1);   // At least one day.
+                        timers_out[queue_index] = TIMER_TYPE(max(duration, 1)); // At least one day.
+
+                        uint32_t event_index = atomicAdd((int*)transmission_count, 1);
+                        transmission_events[event_index].source    = source_individual;
+                        transmission_events[event_index].target    = target_individual;
+                        transmission_events[event_index].time_step = simulation_step;
                     }
-                    // TODO - should still note that individual (super) infected target
                 }
             }
         }
@@ -57,6 +64,7 @@ __global__ void flu_kernel(
         else
         {
             recovered_v[source_individual] = 1;
+            // Increment number of recovered individuals
         }
     }
 }

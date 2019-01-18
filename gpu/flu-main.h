@@ -58,6 +58,7 @@ struct SimulationState {
     TIMER_TYPE*     timers_b;
     INF_TYPE*       infected_v;
     MASK_TYPE*      recovered_v;
+    TxEvent*        tx_events;
     Counters*       counters;
 
     SimulationState()
