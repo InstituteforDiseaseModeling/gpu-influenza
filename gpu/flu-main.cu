@@ -1,5 +1,4 @@
 #include <cuda_runtime.h>
-#include <curand.h>
 
 #include <chrono>
 #include <cstdio>
@@ -12,6 +11,7 @@
 #include <random>
 
 #include "flu-kernel.h"
+#include "flu-main.h"
 
 /*
 
@@ -38,121 +38,70 @@ Lather, rinse, repeat.
 
 */
 
-void ProcessCommandLine(int argc, const char* argv[], uint32_t& n, uint32_t& c, uint32_t& i, uint32_t& d, float& duration, float& r, uint32_t& seed, bool& quiet, bool& debug);
-void AllocateAndInitializePrngStates(curandState** ppPrngStates, uint32_t population_size, uint32_t prng_seed);
-void AllocateAndInitializeNetwork( IND_TYPE** pNetwork_m, CON_TYPE** pConnect_m, uint32_t population_size, uint32_t max_connections, float infectious_duration, float r0, curandState* pPrngStates, bool debug );
-void AllocateQueuesAndTimers(IND_TYPE** queue_a, IND_TYPE** queue_b, TIMER_TYPE** timers_a, TIMER_TYPE** timers_b, uint32_t population_size);
+void ProcessCommandLine(int argc, const char* argv[], Configuration& config);
 
-void InitializeNetwork( IND_TYPE* network_m, CON_TYPE* connect_m, uint32_t population_size, uint32_t max_connections, float infectious_duration, float r0, curandState* pPrngStates );
-void SeedInfected(uint32_t n, uint32_t i, float mean_duration, IND_TYPE* infected_q, TIMER_TYPE* timers, INF_TYPE*infected_v, uint32_t& count, uint32_t seed);
-void AllocatePrngState(curandState** pPrngState, uint32_t population);
-void DisplayInfectedQueue( IND_TYPE* infected_queue, TIMER_TYPE* timers, uint32_t count );
+void AllocateState(SimulationState& state, Configuration& config);
+void InitializeState(SimulationState& state, Configuration& config);
 
-bool quiet = false;
-bool debug = false;
-
-#define DEFAULT_POP     (32)
-#define DEFAULT_CONS     (4)
-#define DEFAULT_INFS     (1)
-#define DEFAULT_STEPS   (10)
-#define DEFAULT_SEED    (20190101)
-
-#define DEFAULT_INFECTIOUS_DURATION_MEAN    (3.0f)
-#define DEFAULT_R0                          (1.5f)
+void DisplayNetwork( SimulationState& state );
+void DisplayInfected( IND_TYPE* queue, TIMER_TYPE* timers, uint32_t count );
 
 int main(int argc, const char* argv[])
 {
-    uint32_t population_size    = DEFAULT_POP;
-    uint32_t max_connections    = DEFAULT_CONS;
-    uint32_t initial_infections = DEFAULT_INFS;
-    uint32_t simulation_days    = DEFAULT_STEPS;
-    uint32_t prng_seed          = DEFAULT_SEED;
+    Configuration   config;
+    SimulationState state;
 
-    float infectious_duration = DEFAULT_INFECTIOUS_DURATION_MEAN;
-    float r0                  = DEFAULT_R0;
+    ProcessCommandLine(argc, argv, config);
 
-    ProcessCommandLine(argc, argv,
-        population_size, max_connections, initial_infections, simulation_days,
-        infectious_duration, r0,
-        prng_seed, quiet, debug);
+    AllocateState(state, config);
+    InitializeState(state, config);
+
+    DisplayNetwork( state );
+    DisplayInfected( state.queue_a, state.timers_a, state.counters->infected_currently );
 
     uint32_t blockX = BLOCK_SIZE;
     dim3 block(blockX, 1, 1);
-    uint32_t gridX = (population_size + block.x - 1) / block.x;
+    uint32_t gridX = (config.population_size + block.x - 1) / block.x;
     dim3 grid(gridX, 1, 1);
 
-    curandState* pPrngStates;
-    AllocateAndInitializePrngStates(&pPrngStates, population_size, prng_seed);
-
-    IND_TYPE* network_m = nullptr;
-    CON_TYPE* connect_m = nullptr;
-    AllocateAndInitializeNetwork(&network_m, &connect_m, population_size, max_connections, infectious_duration, r0, pPrngStates, debug);
-
-    IND_TYPE* queue_a = nullptr;
-    IND_TYPE* queue_b = nullptr;
-    TIMER_TYPE* timers_a = nullptr;
-    TIMER_TYPE* timers_b = nullptr;
-
-    AllocateQueuesAndTimers(&queue_a, &queue_b, &timers_a, &timers_b, population_size);
-
-    INF_TYPE* infected_v = nullptr;
-    CheckReturn(cudaMallocManaged(&infected_v, population_size * sizeof(INF_TYPE)));
-    memset(infected_v, 0, population_size * sizeof(INF_TYPE));
-
-    uint32_t infected_size = 0;
-
-    SeedInfected(population_size, initial_infections, infectious_duration, queue_a, timers_a, infected_v, infected_size, prng_seed);
-    DisplayInfectedQueue( queue_a, timers_a, infected_size );
-
-    MASK_TYPE* recovered_v = nullptr;
-    CheckReturn(cudaMallocManaged(&recovered_v, population_size * sizeof(MASK_TYPE)));
-    memset(recovered_v, 0, population_size * sizeof(MASK_TYPE));
-
-    uint32_t* infected_count = nullptr;
-    CheckReturn(cudaMallocManaged(&infected_count, sizeof(uint32_t)));
-
-    IND_TYPE* infected_q_in = queue_a;
-    TIMER_TYPE* timers_in = timers_a;
-    IND_TYPE* infected_q_out = queue_b;
-    TIMER_TYPE* timers_out = timers_b;
+    IND_TYPE*   previously_infected;
+    IND_TYPE*   currently_infected;
+    TIMER_TYPE* previous_timers;
+    TIMER_TYPE* current_timers;
 
     auto start = clock();
-    for (uint32_t t = 0; t < simulation_days; ++t)
+    for (uint32_t t = 0; t < config.simulation_steps; ++t)
     {
-        *infected_count = 0;
+        state.counters->infected_previously = state.counters->infected_currently;
+        state.counters->infected_currently = 0;
 
-        grid.x = (infected_size + block.x - 1) / block.x;
+        previously_infected = ((t & 1) ? state.queue_b : state.queue_a);
+        currently_infected  = ((t & 1) ? state.queue_a : state.queue_a);
+        previous_timers = ((t & 1) ? state.timers_b : state.timers_a);
+        current_timers  = ((t & 1) ? state.timers_a : state.timers_b);
+
+        grid.x = (state.counters->infected_previously + block.x - 1) / block.x;
         if ( grid.x > 0 )
         {
             flu_kernel<<<grid, block>>>(
-                population_size, max_connections, network_m, connect_m,
-                infected_q_in, timers_in, infected_size,
-                infected_v, recovered_v,
-                infected_q_out, timers_out, infected_count,
-                pPrngStates
+                state.population_size, state.max_connections,
+                config.infectious_duration,
+                state.network_m, state.connect_m,
+                previously_infected, previous_timers, state.counters->infected_previously,
+                state.infected_v, state.recovered_v,
+                currently_infected, current_timers, &state.counters->infected_currently,
+                state.prngStates
             );
             CheckReturn(cudaDeviceSynchronize());
             CheckReturn(cudaGetLastError());
 
-            if ( debug )
+            if ( config.debug )
             {
-                uint32_t w = uint32_t(log10(simulation_days)) + 1;
-                std::cout << std::setw(w) << t << ": " << *infected_count << " infected." << std::endl;
+                uint32_t w = uint32_t(log10(config.simulation_steps)) + 1;
+                std::cout << std::setw(w) << t << ": " << state.counters->infected_currently << " infected." << std::endl;
             }
 
-            DisplayInfectedQueue( infected_q_out, timers_out, *infected_count );
-
-            // Swap queues
-            auto temp1 = infected_q_in;
-            infected_q_in = infected_q_out;
-            infected_q_out = temp1;
-
-            // Swap timers
-            auto temp2 = timers_in;
-            timers_in = timers_out;
-            timers_out = temp2;
-
-            infected_size = *infected_count;
+            DisplayInfected( currently_infected, current_timers, state.counters->infected_currently );
         }
         else
         {
@@ -183,23 +132,23 @@ void ShowHelp(const char* name)
     exit(-1);
 }
 
-void ValidateArguments(uint32_t n, uint32_t c, uint32_t i, uint32_t d, float m, float r)
+void ValidateArguments(Configuration& config)
 {
     bool okay = true;
 
-    if ( n == 0 )    { std::cerr << "population size must be > 0"      << std::endl; okay = false; }
-    if ( c == 0 )    { std::cerr << "connections must be > 0"          << std::endl; okay = false; }
-    if ( i == 0 )    { std::cerr << "initial infections must be > 0"   << std::endl; okay = false; }
-    if ( d == 0 )    { std::cerr << "number of time steps must be > 0" << std::endl; okay = false; }
-    if ( m <= 0.0f ) { std::cerr << "infectious duration must be > 0"  << std::endl; okay = false; }
-    if ( r <= 0.0f ) { std::cerr << "r0 must be > 0"                   << std::endl; okay = false; }
+    if ( config.population_size == 0 )         { std::cerr << "population size must be > 0"      << std::endl; okay = false; }
+    if ( config.max_connections == 0 )         { std::cerr << "connections must be > 0"          << std::endl; okay = false; }
+    if ( config.initial_infections == 0 )      { std::cerr << "initial infections must be > 0"   << std::endl; okay = false; }
+    if ( config.simulation_steps == 0 )        { std::cerr << "number of time steps must be > 0" << std::endl; okay = false; }
+    if ( config.infectious_duration <= 0.0f )  { std::cerr << "infectious duration must be > 0"  << std::endl; okay = false; }
+    if ( config.r0 <= 0.0f )                   { std::cerr << "r0 must be > 0"                   << std::endl; okay = false; }
 
     if ( !okay ) { exit(-1); }
 
     return;
 }
 
-void ProcessCommandLine(int argc, const char* argv[], uint32_t& n, uint32_t& c, uint32_t& i, uint32_t& d, float& m, float& r, uint32_t& s, bool& q, bool& dbg)
+void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
 {
     for (size_t index = 1; index < argc; ++index)
     {
@@ -211,116 +160,111 @@ void ProcessCommandLine(int argc, const char* argv[], uint32_t& n, uint32_t& c, 
             len = strchr(arg, '=') ? (strchr(arg, '=') - arg) : len;
 
             if ( strncmp(arg, "help", len) == 0 ) { ShowHelp(argv[0]); }
-            else if ( strncmp(arg, "population",  len) == 0 ) { n = atoi(arg + len + 1); }
-            else if ( strncmp(arg, "connections", len) == 0 ) { c = atoi(arg + len + 1); }
-            else if ( strncmp(arg, "infections",  len) == 0 ) { i = atoi(arg + len + 1); }
-            else if ( strncmp(arg, "time",        len) == 0 ) { d = atoi(arg + len + 1); }
-            else if ( strncmp(arg, "duration",    len) == 0 ) { m = atof(arg + len + 1); }  // float
-            else if ( strncmp(arg, "r0",          len) == 0 ) { r = atof(arg + len + 1); }  // float
-            else if ( strncmp(arg, "seed",        len) == 0 ) { s = atoi(arg + len + 1); }
-            else if ( strncmp(arg, "quiet",       len) == 0 ) { q = true; }
-            else if ( strncmp(arg, "debug",       len) == 0 ) { dbg = true; }
+            else if ( strncmp(arg, "population",  len) == 0 ) { config.population_size     = atoi(arg + len + 1); }
+            else if ( strncmp(arg, "connections", len) == 0 ) { config.max_connections     = atoi(arg + len + 1); }
+            else if ( strncmp(arg, "infections",  len) == 0 ) { config.initial_infections  = atoi(arg + len + 1); }
+            else if ( strncmp(arg, "time",        len) == 0 ) { config.simulation_steps    = atoi(arg + len + 1); }
+            else if ( strncmp(arg, "duration",    len) == 0 ) { config.infectious_duration = atof(arg + len + 1); }  // float
+            else if ( strncmp(arg, "r0",          len) == 0 ) { config.r0                  = atof(arg + len + 1); }  // float
+            else if ( strncmp(arg, "seed",        len) == 0 ) { config.prng_seed           = atoi(arg + len + 1); }
+            else if ( strncmp(arg, "quiet",       len) == 0 ) { config.quiet = true; }
+            else if ( strncmp(arg, "debug",       len) == 0 ) { config.debug = true; }
             else
             {
-                std::cerr << "Unknown command line argument '" << argv[i] << "'." << std::endl;
+                std::cerr << "Unknown command line argument '" << argv[index] << "'." << std::endl;
             }
         }
         else
         {
-            std::cerr << "Unknown command line argument '" << argv[i] << "'." << std::endl;
+            std::cerr << "Unknown command line argument '" << argv[index] << "'." << std::endl;
         }
     }
 
-    ValidateArguments(n, c, i, d, m, r);
+    ValidateArguments(config);
 
-    std::cout << "Population:                       " << n << std::endl;
-    std::cout << "Max connections: ................ " << c << std::endl;
-    std::cout << "Initial infections:               " << i << std::endl;
-    std::cout << "Simulation duration (time steps): " << d << std::endl;
-    std::cout << "Mean infectious duration:         " << m << std::endl;
-    std::cout << "R0:                               " << r << std::endl;
-    std::cout << "PRNG seed:                        " << s << std::endl;
-    std::cout << "Quiet mode:                       " << (q ? "on" : "off") << std::endl;
-    std::cout << "Debugging mode:                   " << (dbg ? "on" : "off") << std::endl;
+    std::cout << "Population:                       " << config.population_size        << std::endl;
+    std::cout << "Max connections: ................ " << config.max_connections        << std::endl;
+    std::cout << "Initial infections:               " << config.initial_infections     << std::endl;
+    std::cout << "Simulation duration (time steps): " << config.simulation_steps       << std::endl;
+    std::cout << "Mean infectious duration:         " << config.infectious_duration    << std::endl;
+    std::cout << "R0:                               " << config.r0                     << std::endl;
+    std::cout << "PRNG seed:                        " << config.prng_seed              << std::endl;
+    std::cout << "Quiet mode:                       " << (config.quiet ? "on" : "off") << std::endl;
+    std::cout << "Debugging mode:                   " << (config.debug ? "on" : "off") << std::endl;
 }
 
-void AllocateAndInitializePrngStates(curandState** ppPrngStates, uint32_t population_size, uint32_t prng_seed)
+void DisplayNetwork( SimulationState& state )
+{
+
+}
+
+void DisplayInfected( IND_TYPE* infected_queue, TIMER_TYPE* timers, uint32_t count )
+{
+    std::cout << "Infected (" << count << "): ";
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        std::cout << infected_queue[i] << '/' << uint32_t(timers[i]) << ' ';
+    }
+    std::cout << std::endl;
+}
+
+void AllocateState(SimulationState& state, Configuration& config)
+{
+    CheckReturn(cudaMallocManaged(&state.network_m,   config.population_size * config.max_connections * sizeof(IND_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.connect_m,   config.population_size * config.max_connections * sizeof(CON_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.prngStates,  config.population_size * sizeof(curandState)));
+    CheckReturn(cudaMallocManaged(&state.queue_a,     config.population_size * sizeof(IND_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.queue_b,     config.population_size * sizeof(IND_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.timers_a,    config.population_size * sizeof(TIMER_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.timers_b,    config.population_size * sizeof(TIMER_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.infected_v,  config.population_size * sizeof(INF_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.recovered_v, config.population_size * sizeof(MASK_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.counters,    sizeof(Counters)));
+}
+
+void InitializePrngStates(SimulationState& state, Configuration& config);
+void InitializeNetwork(SimulationState& state, Configuration& config);
+void SeedInfections(SimulationState& state, Configuration& config);
+void ZeroVectors(SimulationState& state);
+
+void InitializeState(SimulationState& state, Configuration& config)
+{
+    state.population_size = config.population_size;
+    state.max_connections = config.max_connections;
+    state.counters->infected_previously = 0;
+    state.counters->infected_currently  = 0;
+    state.counters->recovered           = 0;
+    state.counters->transmissions       = 0;
+
+    InitializePrngStates(state, config);
+    InitializeNetwork(state, config);
+    SeedInfections(state, config);
+    ZeroVectors(state);
+}
+
+void InitializePrngStates(SimulationState& state, Configuration& config)
 {
     auto start = clock();
 
-    AllocatePrngState(ppPrngStates, population_size);
-
     uint32_t blockX = BLOCK_SIZE;
     dim3 block(blockX, 1, 1);
-    uint32_t gridX = (population_size + block.x - 1) / block.x;
+    uint32_t gridX = (state.population_size + block.x - 1) / block.x;
     dim3 grid(gridX, 1, 1);
 
-    initialize_prng<<<grid, block>>>(*ppPrngStates, population_size, prng_seed);
+    initialize_prng<<<grid, block>>>(state.prngStates, state.population_size, config.prng_seed);
     CheckReturn(cudaDeviceSynchronize());
     CheckReturn(cudaGetLastError());
 
     auto end = clock();
-    std::cout << (1000 * uint64_t(end - start) / double(CLOCKS_PER_SEC)) << " milliseconds to allocate and initialize prng states." << std::endl;
 }
 
-void AllocatePrngState(curandState** ppPrngStates, uint32_t population)
-{
-    CheckReturn(cudaMallocManaged(ppPrngStates, population * sizeof(curandState)));
-    // CheckReturn(cudaMalloc(ppPrngStates, population * sizeof(curandState)));
-    // CheckReturn(cudaMemset(*ppPrngStates, 0, population * sizeof(curandState)));
-}
-
-void AllocateAndInitializeNetwork(
-    IND_TYPE** pNetwork_m,
-    CON_TYPE** pConnect_m,
-    uint32_t population_size,
-    uint32_t max_connections,
-    float infectious_duration,
-    float r0,
-    curandState* pPrngStates,
-    bool debug
-    )
-{
-    auto start = clock();
-
-    CheckReturn(cudaMallocManaged(pNetwork_m, population_size * max_connections * sizeof(IND_TYPE)));
-    CheckReturn(cudaMallocManaged(pConnect_m, population_size * max_connections * sizeof(CON_TYPE)));
-    InitializeNetwork(*pNetwork_m, *pConnect_m, population_size, max_connections, infectious_duration, r0, pPrngStates);
-
-    auto end = clock();
-    std::cout << (1000 * uint64_t(end - start) / double(CLOCKS_PER_SEC)) << " milliseconds to allocate and initialize network." << std::endl;
-
-    if ( debug )
-    {
-        std::vector<IND_TYPE> indices = { 0, 1, 2, population_size - 2, population_size - 1 };
-        for (auto individual : indices)
-        {
-            std::cout << individual << ": ";
-            for (uint32_t i = 0; i < max_connections; ++i)
-            {
-                uint32_t offset = (individual * max_connections) + i;
-                std::cout << ' ' << pNetwork_m[offset] << '/' << pConnect_m[offset];
-            }
-            std::cout << std::endl;
-        }
-    }
-}
-
-void InitializeNetwork(
-    IND_TYPE* network_m,
-    CON_TYPE* connect_m,
-    uint32_t population_size,
-    uint32_t max_connections,
-    float infectious_duration,
-    float r0,
-    curandState* pPrngStates
-)
+void InitializeNetwork(SimulationState& state, Configuration& config)
 {
     auto start = clock();
 
     dim3 blocks(BLOCK_SIZE, 1, 1);
-    dim3 grid((population_size + BLOCK_SIZE - 1) / BLOCK_SIZE, 1, 1);
-    setup_network<<<grid, blocks>>>(network_m, connect_m, population_size, max_connections, infectious_duration, r0, pPrngStates);
+    dim3 grid((state.population_size + BLOCK_SIZE - 1) / BLOCK_SIZE, 1, 1);
+    setup_network<<<grid, blocks>>>(state.network_m, state.connect_m, state.population_size, state.max_connections, config.infectious_duration, config.r0, state.prngStates);
     CheckReturn(cudaDeviceSynchronize());
     CheckReturn(cudaGetLastError());
 
@@ -328,45 +272,36 @@ void InitializeNetwork(
     std::cout << (1000 * uint64_t(end - start) / double(CLOCKS_PER_SEC)) << " milliseconds to initialize network." << std::endl;
 }
 
-void AllocateQueuesAndTimers(IND_TYPE** queue_a, IND_TYPE** queue_b, TIMER_TYPE** timers_a, TIMER_TYPE** timers_b, uint32_t population_size)
+// TODO - consider doing this on the GPU
+void SeedInfections(SimulationState& state, Configuration& config)
 {
-    CheckReturn(cudaMallocManaged(queue_a, population_size * sizeof(IND_TYPE)));
-    CheckReturn(cudaMallocManaged(queue_b, population_size * sizeof(IND_TYPE)));
+    std::mt19937_64 generator(config.prng_seed ^ 0xFFFFFFFF);
+    std::uniform_int_distribution<IND_TYPE> uniform_int(0, config.population_size - 1);
+    std::poisson_distribution<uint32_t> duration(config.infectious_duration);
 
-    CheckReturn(cudaMallocManaged(timers_a, population_size * sizeof(TIMER_TYPE)));
-    CheckReturn(cudaMallocManaged(timers_b, population_size * sizeof(TIMER_TYPE)));
-}
-
-void SeedInfected(uint32_t population_size, uint32_t initial_infections, float mean_duration, IND_TYPE* infected_q, TIMER_TYPE* timers, INF_TYPE* infected_v, uint32_t& count, uint32_t seed)
-{
-    std::mt19937_64 generator(seed ^ 0xFFFFFFFF);
-    std::uniform_int_distribution<IND_TYPE> uniform_int(0, population_size - 1);
-    std::poisson_distribution<uint32_t> duration(mean_duration);
-
-    for (size_t j = 0; j < initial_infections; ++j)
+    for (size_t j = 0; j < config.initial_infections; ++j)
     {
         IND_TYPE index;
         do
         {
             index = uniform_int(generator);
-        } while (infected_v[index] != 0);
-        infected_q[j] = index;
-        timers[j] = TIMER_TYPE(std::max(duration(generator), uint32_t(1))); // At least one day of infectiousness.
-        infected_v[index] = 1;
-        std::cout << "Individual " << index << " placed at location " << j << " with infectious period " << uint32_t(timers[j]) << std::endl;
+        } while (state.infected_v[index] != 0);
+        state.queue_a[j] = index;
+        state.timers_a[j] = TIMER_TYPE(std::max(duration(generator), uint32_t(1))); // At least one day of infectiousness.
+        state.infected_v[index] = 1;
+
+        if (config.debug)
+        {
+            std::cout << "Individual " << index << " placed at location " << j << " with infectious period " << uint32_t(state.timers_a[j]) << std::endl;
+        }
     }
 
-    count = initial_infections;
+    state.counters->infected_currently = config.initial_infections;
 }
 
-void DisplayInfectedQueue( IND_TYPE* infected_queue, TIMER_TYPE* timers, uint32_t count )
+// TODO - could do this on the GPU with a tiny kernel
+void ZeroVectors(SimulationState& state)
 {
-    if ( quiet ) return;
-
-    std::cout << "Infected (" << count << "): ";
-    for (uint32_t i = 0; i < count; ++i)
-    {
-        std::cout << infected_queue[i] << '/' << uint32_t(timers[i]) << ' ';
-    }
-    std::cout << std::endl;
+    memset(state.infected_v,  0, state.population_size * sizeof(INF_TYPE));
+    memset(state.recovered_v, 0, state.population_size * sizeof(MASK_TYPE));
 }

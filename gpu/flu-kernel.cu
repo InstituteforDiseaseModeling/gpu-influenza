@@ -4,11 +4,13 @@
 #include "block-size.h"
 
 __global__ void flu_kernel(
-    uint32_t population_size, uint32_t connection_count, IND_TYPE* network_m, CON_TYPE* connect_m,  // RO
-    IND_TYPE* infected_q_in, TIMER_TYPE* timers_in, uint32_t queue_size,                            // RO
-    INF_TYPE* infected_v, MASK_TYPE* recovered_v,                                                   // R/W
-    IND_TYPE* infected_q_out, TIMER_TYPE* timers_out, uint32_t* queue_count,                        // WO
-    curandState* pPrngStates)                                                                       // R/W
+    uint32_t population_size, uint32_t connection_count,                        // RO
+    float mean_duration,                                                        // RO
+    IND_TYPE* network_m, CON_TYPE* connect_m,                                   // RO
+    IND_TYPE* infected_q_in, TIMER_TYPE* timers_in, uint32_t queue_size,        // RO
+    INF_TYPE* infected_v, MASK_TYPE* recovered_v,                               // R/W
+    IND_TYPE* infected_q_out, TIMER_TYPE* timers_out, uint32_t* queue_count,    // WO
+    curandState* prngStates)                                                    // R/W
 {
     uint32_t infected_index = (blockDim.x * blockIdx.x) + threadIdx.x;
 ///    printf("Block dim (%02d, %02d), block index (%02d, %02d), thread index (%02d, %02d) => index %02d, neighbor %02d\n",
@@ -27,8 +29,8 @@ __global__ void flu_kernel(
             // TODO - ignore infected_v[target_individual] here to track super-infection?
             if (!infected_v[target_individual] && !recovered_v[target_individual])
             {
-                curandState* pPrngState = pPrngStates + source_individual;
-                float draw = curand_uniform(pPrngState);
+                curandState* prngState = prngStates + source_individual;
+                float draw = curand_uniform(prngState);
                 if (draw < susceptibility[neighbor_index])
                 {
                     INF_TYPE infected = atomicExch(&infected_v[target_individual], INF_TYPE(1));
@@ -37,7 +39,7 @@ __global__ void flu_kernel(
                         uint32_t queue_index = atomicAdd((int*)queue_count, 1);
 
                         infected_q_out[queue_index] = target_individual;
-                        int32_t duration = curand_poisson(pPrngState, 3);
+                        int32_t duration = curand_poisson(prngState, mean_duration);
                         timers_out[queue_index] = TIMER_TYPE(duration+1);   // At least one day.
                     }
                     // TODO - should still note that individual (super) infected target
@@ -59,15 +61,15 @@ __global__ void flu_kernel(
     }
 }
 
-__global__ void initialize_prng(curandState* pPrngState, uint32_t population, uint32_t seed)
+__global__ void initialize_prng(curandState* prngState, uint32_t population, uint32_t seed)
 {
     uint32_t individual = (blockDim.x * blockIdx.x) + threadIdx.x;
 
     if ( individual < population )
     {
-        memset(pPrngState + individual, 0, sizeof(curandState));
-        //curand_init(seed, individual, 0, pPrngState + individual);    // VERY SLOW!
-        curand_init(individual, 0, 0, pPrngState + individual);
+        memset(prngState + individual, 0, sizeof(curandState));
+        //curand_init(seed, individual, 0, prngState + individual);    // VERY SLOW!
+        curand_init(individual, 0, 0, prngState + individual);
     }
 }
 
@@ -84,7 +86,7 @@ __device__ bool contains(IND_TYPE* neighbors, uint32_t count, IND_TYPE neighbor)
     return false;
 }
 
-// TODO - determine appropriate R0 and thus "strength" below.
+// TODO - determine appropriate R0 and thus weights below.
 // Consider "Modeling influenza epidemics and pandemics: insights into the future of swine flu (H1N1)"
 //          "https://www.ncbi.nlm.nih.gov/pubmed/19545404"
 // "The R0 for novel influenza A (H1N1) has recently been estimated to be between 1.4 and 1.6.
@@ -95,7 +97,7 @@ __global__ void setup_network(
     IND_TYPE* network, CON_TYPE* connections,
     uint32_t population_count, uint32_t connection_count,
     float infectious_duration, float r0,
-    curandState* pPrngStates)
+    curandState* prngStates)
 {
     uint32_t individual = (blockDim.x * blockIdx.x) + threadIdx.x;
 
@@ -108,7 +110,7 @@ __global__ void setup_network(
             uint32_t neighbor;
             do
             {
-                neighbor = curand(pPrngStates + individual) % population_count;
+                neighbor = curand(prngStates + individual) % population_count;
             }
             while (contains(neighbors, connection, neighbor));
 
