@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 #include <curand.h>
 
@@ -15,6 +16,8 @@
 #define DEFAULT_INFECTIOUS_DURATION_MEAN    (3.0f)
 #define DEFAULT_R0                          (1.5f)
 
+#define DEFAULT_OUTPUT  ("transmissions.bin")
+
 struct Configuration {
     uint32_t    population_size;
     uint32_t    max_connections;
@@ -25,6 +28,9 @@ struct Configuration {
     float       r0;
     bool        quiet;
     bool        debug;
+    std::string input_filename;
+    std::string output_filename;
+    std::string network_filename;
 
     Configuration()
         : population_size(DEFAULT_POP)
@@ -36,6 +42,9 @@ struct Configuration {
         , r0(DEFAULT_R0)
         , quiet(false)
         , debug(true)
+        , input_filename("")
+        , output_filename(DEFAULT_OUTPUT)
+        , network_filename("")
     {}
 };
 

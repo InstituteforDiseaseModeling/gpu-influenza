@@ -42,7 +42,8 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config);
 
 void AllocateState(SimulationState& state, Configuration& config);
 void InitializeState(SimulationState& state, Configuration& config);
-void WriteTransmissionEventsToFile( SimulationState& state );
+void SaveStateToFile(SimulationState& state, Configuration& config);
+void WriteTransmissionEventsToFile( SimulationState& state, Configuration& config );
 
 void DisplayNetwork( SimulationState& state );
 void DisplayInfected( IND_TYPE* queue, TIMER_TYPE* timers, uint32_t count );
@@ -115,7 +116,7 @@ int main(int argc, const char* argv[])
     auto end = clock();
     std::cout << (1000 * uint64_t(end - start) / double(CLOCKS_PER_SEC)) << " milliseconds for simulation." << std::endl;
 
-    WriteTransmissionEventsToFile( state );
+    WriteTransmissionEventsToFile( state, config );
 
     return 0;
 }
@@ -124,15 +125,18 @@ void ShowHelp(const char* name)
 {
     std::cout << std::endl;
     std::cout << name << ':' << std::endl;
-    std::cout << "\t--population:#  - population size [" << DEFAULT_POP << ']' << std::endl;
-    std::cout << "\t--connections:# - per agent network degree [" << DEFAULT_CONS << ']' << std::endl;
-    std::cout << "\t--infections:#  - number of initial infections [" << DEFAULT_INFS << ']' << std::endl;
-    std::cout << "\t--time:#        - number of time steps [" << DEFAULT_STEPS << ']' << std::endl;
-    std::cout << "\t--duration:#    - mean infectious duration (days) [" << DEFAULT_INFECTIOUS_DURATION_MEAN << ']' << std::endl;
-    std::cout << "\t--r0:#          - mean r0 [" << DEFAULT_R0 << ']' << std::endl;
-    std::cout << "\t--seed:#        - random number seed [" << DEFAULT_SEED << ']' << std::endl;
-    std::cout << "\t--quiet         - do not display state during execution" << std::endl;
-    std::cout << "\t--debug         - display debugging information" << std::endl;
+    std::cout << "\t--population:#     - population size [" << DEFAULT_POP << ']' << std::endl;
+    std::cout << "\t--connections:#    - per agent network degree [" << DEFAULT_CONS << ']' << std::endl;
+    std::cout << "\t--infections:#     - number of initial infections [" << DEFAULT_INFS << ']' << std::endl;
+    std::cout << "\t--time:#           - number of time steps [" << DEFAULT_STEPS << ']' << std::endl;
+    std::cout << "\t--duration:#       - mean infectious duration (days) [" << DEFAULT_INFECTIOUS_DURATION_MEAN << ']' << std::endl;
+    std::cout << "\t--r0:#             - mean r0 [" << DEFAULT_R0 << ']' << std::endl;
+    std::cout << "\t--seed:#           - random number seed [" << DEFAULT_SEED << ']' << std::endl;
+    std::cout << "\t--input:filename   - name of file with network data [ none ]" << std::endl;
+    std::cout << "\t--output:filename  - name of file for transmission data [ '" << DEFAULT_OUTPUT << "' ]" << std::endl;
+    std::cout << "\t--network:filename - name of file for saving network data [ none ]" << std::endl;
+    std::cout << "\t--quiet            - do not display state during execution" << std::endl;
+    std::cout << "\t--debug            - display debugging information" << std::endl;
     std::cout << std::endl;
     exit(-1);
 }
@@ -163,17 +167,21 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
             size_t len = strlen(arg);
             len = strchr(arg, ':') ? (strchr(arg, ':') - arg) : len;
             len = strchr(arg, '=') ? (strchr(arg, '=') - arg) : len;
+            const char* value = arg + len + 1;
 
             if ( strncmp(arg, "help", len) == 0 ) { ShowHelp(argv[0]); }
-            else if ( strncmp(arg, "population",  len) == 0 ) { config.population_size     = atoi(arg + len + 1); }
-            else if ( strncmp(arg, "connections", len) == 0 ) { config.max_connections     = atoi(arg + len + 1); }
-            else if ( strncmp(arg, "infections",  len) == 0 ) { config.initial_infections  = atoi(arg + len + 1); }
-            else if ( strncmp(arg, "time",        len) == 0 ) { config.simulation_steps    = atoi(arg + len + 1); }
-            else if ( strncmp(arg, "duration",    len) == 0 ) { config.infectious_duration = atof(arg + len + 1); }  // float
-            else if ( strncmp(arg, "r0",          len) == 0 ) { config.r0                  = atof(arg + len + 1); }  // float
-            else if ( strncmp(arg, "seed",        len) == 0 ) { config.prng_seed           = atoi(arg + len + 1); }
+            else if ( strncmp(arg, "population",  len) == 0 ) { config.population_size     = atoi(value); }
+            else if ( strncmp(arg, "connections", len) == 0 ) { config.max_connections     = atoi(value); }
+            else if ( strncmp(arg, "infections",  len) == 0 ) { config.initial_infections  = atoi(value); }
+            else if ( strncmp(arg, "time",        len) == 0 ) { config.simulation_steps    = atoi(value); }
+            else if ( strncmp(arg, "duration",    len) == 0 ) { config.infectious_duration = atof(value); }  // float
+            else if ( strncmp(arg, "r0",          len) == 0 ) { config.r0                  = atof(value); }  // float
+            else if ( strncmp(arg, "seed",        len) == 0 ) { config.prng_seed           = atoi(value); }
             else if ( strncmp(arg, "quiet",       len) == 0 ) { config.quiet = true; }
             else if ( strncmp(arg, "debug",       len) == 0 ) { config.debug = true; }
+            else if ( strncmp(arg, "input",       len) == 0 ) { config.input_filename   = std::string(value); }
+            else if ( strncmp(arg, "output",      len) == 0 ) { config.output_filename  = std::string(value); }
+            else if ( strncmp(arg, "network",     len) == 0 ) { config.network_filename = std::string(value); }
             else
             {
                 std::cerr << "Unknown command line argument '" << argv[index] << "'." << std::endl;
@@ -187,15 +195,18 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
 
     ValidateArguments(config);
 
-    std::cout << "Population:                       " << config.population_size        << std::endl;
-    std::cout << "Max connections: ................ " << config.max_connections        << std::endl;
-    std::cout << "Initial infections:               " << config.initial_infections     << std::endl;
-    std::cout << "Simulation duration (time steps): " << config.simulation_steps       << std::endl;
-    std::cout << "Mean infectious duration:         " << config.infectious_duration    << std::endl;
-    std::cout << "R0:                               " << config.r0                     << std::endl;
-    std::cout << "PRNG seed:                        " << config.prng_seed              << std::endl;
-    std::cout << "Quiet mode:                       " << (config.quiet ? "on" : "off") << std::endl;
-    std::cout << "Debugging mode:                   " << (config.debug ? "on" : "off") << std::endl;
+    std::cout << "Population:                       " << config.population_size          << std::endl;
+    std::cout << "Max connections: ................ " << config.max_connections          << std::endl;
+    std::cout << "Initial infections:               " << config.initial_infections       << std::endl;
+    std::cout << "Simulation duration (time steps): " << config.simulation_steps         << std::endl;
+    std::cout << "Mean infectious duration:         " << config.infectious_duration      << std::endl;
+    std::cout << "R0:                               " << config.r0                       << std::endl;
+    std::cout << "PRNG seed:                        " << config.prng_seed                << std::endl;
+    std::cout << "Input (network) filename:         " << config.input_filename.c_str()   << std::endl;
+    std::cout << "Output (transmissions) filename:  " << config.output_filename.c_str()  << std::endl;
+    std::cout << "Network (save) filename:          " << config.network_filename.c_str() << std::endl;
+    std::cout << "Quiet mode:                       " << (config.quiet ? "on" : "off")   << std::endl;
+    std::cout << "Debugging mode:                   " << (config.debug ? "on" : "off")   << std::endl;
 }
 
 void DisplayNetwork( SimulationState& state )
@@ -264,7 +275,76 @@ void InitializePrngStates(SimulationState& state, Configuration& config)
     auto end = clock();
 }
 
+void LoadNetworkFromFile(SimulationState& state, Configuration& config);
+void InitializeNetworkOnGpu(SimulationState& state, Configuration& config);
+
 void InitializeNetwork(SimulationState& state, Configuration& config)
+{
+    if ( config.input_filename != "" )
+    {
+        LoadNetworkFromFile(state, config);
+    }
+    else
+    {
+        InitializeNetworkOnGpu(state, config);
+        if ( config.network_filename != "" )
+        {
+            SaveStateToFile(state, config);
+        }
+    }
+}
+
+#include <sys/stat.h>
+
+void LoadNetworkFromFile(SimulationState& state, Configuration& config)
+{
+    const char* filename = config.input_filename.c_str();
+
+    // See if the file is the correct size.
+    struct stat buffer;
+    if ( stat( filename, &buffer ) == 0 )
+    {
+        size_t element_count = config.population_size * config.max_connections;
+        size_t expected_size = size_t((element_count * sizeof(IND_TYPE)) + (element_count * sizeof(CON_TYPE)));
+        if ( buffer.st_size == expected_size )
+        {
+            auto file = fopen( filename, "rb" );
+            if ( file != nullptr )
+            {
+                auto count = fread( state.network_m, sizeof(IND_TYPE), element_count, file );
+                if ( count != element_count )
+                {
+                    std::cerr << "Error reading from '" << filename << "'. Wanted " << element_count << " entries but only read " << count << '.' << std::endl;
+                    exit(-1);
+                }
+                count = fread( state.connect_m, sizeof(CON_TYPE), element_count, file );
+                if ( count != element_count )
+                {
+                    std::cerr << "Error reading from '" << filename << "'. Wanted " << element_count << " entries but only read " << count << '.' << std::endl;
+                    exit(-1);
+                }
+                fclose( file );
+            }
+            else
+            {
+                std::cerr << "Could not open '" << filename << "' for reading." << std::endl;
+                exit(-1);
+            }
+        }
+        else
+        {
+            std::cerr << "'" << filename << "' is not the correct size. Expected " << expected_size << " but found " << buffer.st_size << std::endl;
+            exit(-1);
+        }
+    }
+    else
+    {
+        std::cerr << "Could not call stat() on '" << filename << "'." << std::endl;
+        exit(-1);
+    }
+}
+
+void InitializeNetworkOnGpu(SimulationState& state, Configuration& config)
 {
     auto start = clock();
 
@@ -281,6 +361,10 @@ void InitializeNetwork(SimulationState& state, Configuration& config)
 // TODO - consider doing this on the GPU
 void SeedInfections(SimulationState& state, Configuration& config)
 {
+    // If we are using saved state, infections may already be present.
+    if ( config.initial_infections == 0 ) return;
+
+    // prng_seed is also used on the GPU, lets flip the bits for the CPU seed.
     std::mt19937_64 generator(config.prng_seed ^ 0xFFFFFFFF);
     std::uniform_int_distribution<IND_TYPE> uniform_int(0, config.population_size - 1);
     std::poisson_distribution<uint32_t> duration(config.infectious_duration);
@@ -312,11 +396,26 @@ void ZeroVectors(SimulationState& state)
     memset(state.recovered_v, 0, state.population_size * sizeof(MASK_TYPE));
 }
 
-void WriteTransmissionEventsToFile( SimulationState& state )
+void WriteTransmissionEventsToFile( SimulationState& state, Configuration& config )
 {
-    char* filename = "transmissions.bin";
+    const char* filename = config.output_filename.c_str();
     auto file = fopen( filename, "wb" );
-    std::cout << "Writing " << state.counters->transmissions << " transmission events to " << filename << std::endl;
-    fwrite( state.tx_events, sizeof(TxEvent), state.counters->transmissions, file );
-    fclose(file);
+    std::cout << "Writing " << state.counters->transmissions << " transmission events to '" << filename << "'." << std::endl;
+    auto count = fwrite( state.tx_events, sizeof(TxEvent), state.counters->transmissions, file );
+    std::cout << "Wrote   " << count << " transmission events to '" << filename << "'." << std::endl;
+    fclose( file );
+}
+
+void SaveStateToFile(SimulationState& state, Configuration& config)
+{
+    const char* filename = config.network_filename.c_str();
+    auto file = fopen( filename, "wb" );
+    size_t element_count = config.population_size * config.max_connections;
+    std::cout << "Writing network edges to '" << filename << "'... ";
+    auto count = fwrite( state.network_m, sizeof(IND_TYPE), element_count, file );
+    std::cout << "Wrote " << count << " edges." << std::endl;
+    std::cout << "Writing edge weights to '" << filename << "'... ";
+    count = fwrite( state.connect_m, sizeof(CON_TYPE), element_count, file );
+    std::cout << "Wrote " << count << " weights." << std::endl;
+    fclose( file );
 }
