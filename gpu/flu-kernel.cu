@@ -33,7 +33,7 @@ __global__ void flu_kernel(
             if (!infected_v[target_individual] && !recovered_v[target_individual])
             {
                 curandState* prngState = prngStates + source_individual;
-                float draw = curand_uniform(prngState);
+                CON_TYPE draw = CON_TYPE(curand_uniform(prngState));
                 if (draw < susceptibility[neighbor_index])
                 {
                     INF_TYPE infected = atomicExch(&infected_v[target_individual], INF_TYPE(1));
@@ -124,7 +124,7 @@ __global__ void setup_network(
 
             neighbors[connection] = neighbor;
             // TODO - consider distribution around this value? Gaussian/normal?
-            weights[connection] = r0 / (infectious_duration * connection_count);
+            weights[connection] = CON_TYPE(r0 / (infectious_duration * connection_count));
         }
     }
 }

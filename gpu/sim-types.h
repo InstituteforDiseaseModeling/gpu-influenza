@@ -1,7 +1,9 @@
 #pragma once
 
+#include <cuda_fp16.h>
+
 #define IND_TYPE    uint32_t
-#define CON_TYPE    float
+#define CON_TYPE    __half
 #define TIMER_TYPE  uint8_t
 #define INF_TYPE    uint32_t
 #define MASK_TYPE   uint8_t
