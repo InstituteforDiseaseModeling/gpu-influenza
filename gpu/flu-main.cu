@@ -105,7 +105,10 @@ int main(int argc, const char* argv[])
                 std::cout << std::setw(w) << step << ": " << state.counters->infected_currently << " infected." << std::endl;
             }
 
-            DisplayInfected( currently_infected, current_timers, state.counters->infected_currently );
+            if ( !config.quiet )
+            {
+                DisplayInfected( currently_infected, current_timers, state.counters->infected_currently );
+            }
         }
         else
         {
