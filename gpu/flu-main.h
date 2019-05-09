@@ -41,7 +41,7 @@ struct Configuration {
         , infectious_duration(DEFAULT_INFECTIOUS_DURATION_MEAN)
         , r0(DEFAULT_R0)
         , quiet(false)
-        , debug(true)
+        , debug(false)
         , input_filename("")
         , output_filename(DEFAULT_OUTPUT)
         , network_filename("")
