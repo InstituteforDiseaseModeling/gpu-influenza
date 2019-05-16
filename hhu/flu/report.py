@@ -1,11 +1,18 @@
+from builtins import str
+from builtins import zip
+from builtins import range
+from builtins import object
 import logging
 log = logging.getLogger(__name__)
 import numpy as np
-import csv
+import csv, json
+import datetime
 import matplotlib.pyplot as plt
+import matplotlib as mpl
+import seaborn as sns
 import networkx as nx
 
-class Report:
+class Report(object):
     def __init__(self, sim):
         self.sim = sim
         self.configs = sim.configs
@@ -70,20 +77,19 @@ class Report:
 
     def write_infection(self, output_file_dir):
         for label_name in self.infection_label_counts:
-            with open(output_file_dir+"infection_"+label_name+".csv", "w", newline='') as outfile:
+            with open(output_file_dir+"infection_"+label_name+".csv", "w") as outfile:
                 writer = csv.writer(outfile)
-                writer.writerow(self.infection_label_counts[label_name].keys())
-                writer.writerows(zip(*self.infection_label_counts[label_name].values()))
+                writer.writerow(list(self.infection_label_counts[label_name].keys()))
+                writer.writerows(list(zip(*list(self.infection_label_counts[label_name].values()))))
 
         return
 
-
     def write_infection_network(self, output_file_name):
-        with open(output_file_name, 'w', newline='') as outfile:
+        with open(output_file_name, 'w') as outfile:
             w = csv.writer(outfile, delimiter=',')
             w.writerow(['time', 'from', 'to'])
 
-            for sim_time,  networks in self.infection_networks.items():
+            for sim_time,  networks in list(self.infection_networks.items()):
                 for from_id, to_id in networks:
                     w.writerow([sim_time, from_id, to_id])
 
@@ -91,15 +97,15 @@ class Report:
 
     def plot_infection(self, output_file_dir):
 
-        # total_plots = len(self.infection_label_counts)
-        # idx_label = 0
+        total_plots = len(self.infection_label_counts)
+        idx_label = 0
 
         for label_name in self.infection_label_counts:
             plt.figure(figsize=(8,6))
             plt.title(label_name)
             plt.xlabel("time")
             for bin_name in self.infection_label_counts[label_name]:
-                plt.plot(range(len(self.infection_label_counts[label_name][bin_name])), self.infection_label_counts[label_name][bin_name], label=bin_name)
+                plt.plot(list(range(len(self.infection_label_counts[label_name][bin_name]))), self.infection_label_counts[label_name][bin_name], label=bin_name)
                 plt.legend()
             plt.savefig(output_file_dir+"infection_"+label_name+".pdf")
 
@@ -114,11 +120,11 @@ class Report:
             figure_size = (36,30)
         plt.figure(figsize = figure_size)
         G = nx.DiGraph()
-        # edge_colors = []
-        for sim_time,  networks in self.infection_networks.items():
+        edge_colors = []
+        for sim_time,  networks in list(self.infection_networks.items()):
             for from_id, to_id in networks:
                 G.add_edge(from_id, to_id, weight=sim_time)
-        edges,weights = zip(*nx.get_edge_attributes(G,'weight').items())
+        edges,weights = list(zip(*list(nx.get_edge_attributes(G,'weight').items())))
 
         pos = nx.layout.spring_layout(G, k=1)
         #nodes = nx.draw_networkx_nodes(G, pos, node_color='yellow')
