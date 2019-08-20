@@ -1,22 +1,15 @@
 #!/usr/bin/env python
 
-from __future__ import print_function
-from builtins import range
 import yaml
-import argparse, textwrap
+import argparse
 import os
-from datetime import datetime
-import matplotlib.pyplot as plt
 
-#### intro text ####
-
-intro_text = textwrap.dedent('''\
+print('''
 =============================
 Matrix-based Individual Model
 Flu Prototype
 =============================
 ''')
-print(intro_text)
 
 logger = None
 
