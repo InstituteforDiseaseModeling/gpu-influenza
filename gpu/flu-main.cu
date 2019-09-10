@@ -258,8 +258,8 @@ void InitializeState(SimulationState& state, Configuration& config)
 
     InitializePrngStates(state, config);
     InitializeNetwork(state, config);
-    SeedInfections(state, config);
     ZeroVectors(state);
+    SeedInfections(state, config);
 }
 
 void InitializePrngStates(SimulationState& state, Configuration& config)
