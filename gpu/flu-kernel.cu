@@ -6,11 +6,14 @@
 __global__ void flu_kernel(
     uint32_t simulation_step,                                                   // RO
     uint32_t population_size, uint32_t connection_count,                        // RO
-    float mean_duration,                                                        // RO
+    float mean_duration_inc, float stddev_duration_inc,                         // RO
+    float mean_duration_inf, float stddev_duration_inf,                         // RO
     IND_TYPE* network_m, CON_TYPE* connect_m,                                   // RO
-    IND_TYPE* infected_q_in, TIMER_TYPE* timers_in, uint32_t queue_size,        // RO
-    INF_TYPE* infected_v, MASK_TYPE* recovered_v,                               // R/W
-    IND_TYPE* infected_q_out, TIMER_TYPE* timers_out, uint32_t* queue_count,    // WO
+    IND_TYPE* exp_q_in, TIMER_TYPE* exp_timers_in, uint32_t exp_queue_size,     // RO
+    IND_TYPE* inf_q_in, TIMER_TYPE* inf_timers_in, uint32_t inf_queue_size,     // RO
+    INF_TYPE* status_v,                                                         // R/W
+    IND_TYPE* exp_q_out, TIMER_TYPE* exp_timers_out, uint32_t* exp_queue_count, // WO
+    IND_TYPE* inf_q_out, TIMER_TYPE* inf_timers_out, uint32_t* inf_queue_count, // WO
     uint32_t* transmission_count,                                               // RW
     TxEvent* transmission_events,                                               // WO
     curandState* prngStates)                                                    // R/W
@@ -21,29 +24,29 @@ __global__ void flu_kernel(
 
     // Entire blocks of threads are scheduled, so the "last" block might have some threads
     // with no work to do.
-    if (infected_index < queue_size)
+    if (infected_index < inf_queue_size)
     {
-        IND_TYPE source_individual = infected_q_in[infected_index];
+        IND_TYPE source_individual = inf_q_in[infected_index];
         IND_TYPE* neighbors = network_m + (connection_count * source_individual);
         CON_TYPE* susceptibility = connect_m + (connection_count * source_individual);
         for (uint32_t neighbor_index = 0; neighbor_index < connection_count; ++neighbor_index)
         {
             IND_TYPE target_individual = neighbors[neighbor_index];
-            // TODO - ignore infected_v[target_individual] here to allow super-infection?
-            if (!infected_v[target_individual] && !recovered_v[target_individual])
+            // TODO - ignore status_v[target_individual] here to allow super-infection?
+            if (STATUS_SUSCEPTIBLE==status_v[target_individual])
             {
                 curandState* prngState = prngStates + source_individual;
                 CON_TYPE draw = CON_TYPE(curand_uniform(prngState));
                 if (draw < susceptibility[neighbor_index])
                 {
-                    INF_TYPE infected = atomicExch(&infected_v[target_individual], INF_TYPE(1));
+                    INF_TYPE infected = atomicExch(&status_v[target_individual], INF_TYPE(STATUS_EXPOSED));
                     if ( !infected )
                     {
-                        uint32_t queue_index = atomicAdd((int*)queue_count, 1);
+                        uint32_t queue_index = atomicAdd((int*)exp_queue_count, 1);
 
-                        infected_q_out[queue_index] = target_individual;
-                        int32_t duration = curand_poisson(prngState, mean_duration);
-                        timers_out[queue_index] = TIMER_TYPE(max(duration, 1)); // At least one day.
+                        exp_q_out[queue_index] = target_individual;
+                        int32_t duration = __float2int_rn(curand_log_normal(prngState, mean_duration_inc, stddev_duration_inc));
+                        exp_timers_out[queue_index] = TIMER_TYPE(max(duration, 1)); // At least one day.
 
                         uint32_t event_index = atomicAdd((int*)transmission_count, 1);
                         transmission_events[event_index].source    = source_individual;
@@ -54,16 +57,37 @@ __global__ void flu_kernel(
             }
         }
 
-        TIMER_TYPE remaining = timers_in[infected_index] - 1;
+        TIMER_TYPE remaining = inf_timers_in[infected_index] - 1;
         if (remaining > 0)
         {
-            uint32_t queue_index = atomicAdd((int*)queue_count, 1);
-            infected_q_out[queue_index] = source_individual;
-            timers_out[queue_index] = remaining;
+            uint32_t queue_index = atomicAdd((int*)inf_queue_count, 1);
+            inf_q_out[queue_index] = source_individual;
+            inf_timers_out[queue_index] = remaining;
         }
         else
         {
-            recovered_v[source_individual] = 1;
+            status_v[source_individual] = STATUS_RECOVERED;
+            // Increment number of recovered individuals
+        }
+    } else if(infected_index < (inf_queue_size+exp_queue_size))
+    {
+        uint32_t exposed_index = infected_index-inf_queue_size;
+	IND_TYPE source_individual = exp_q_in[exposed_index];
+        TIMER_TYPE remaining = exp_timers_in[exposed_index] - 1;
+        if (remaining > 0)
+        {
+            uint32_t queue_index = atomicAdd((int*)exp_queue_count, 1);
+            exp_q_out[queue_index] = source_individual;
+            exp_timers_out[queue_index] = remaining;
+        }
+        else
+        {
+            uint32_t queue_index = atomicAdd((int*)inf_queue_count, 1);
+            inf_q_out[queue_index] = source_individual;
+            curandState* prngState = prngStates + source_individual;
+            int32_t duration = __float2int_rn(curand_log_normal(prngState, mean_duration_inf, stddev_duration_inf));
+            inf_timers_out[queue_index] = TIMER_TYPE(max(duration, 1)); // At least one day.
+            status_v[source_individual] = STATUS_INFECTIOUS;
             // Increment number of recovered individuals
         }
     }
@@ -77,7 +101,7 @@ __global__ void initialize_prng(curandState* prngState, uint32_t population, uin
     {
         memset(prngState + individual, 0, sizeof(curandState));
         //curand_init(seed, individual, 0, prngState + individual);    // VERY SLOW!
-        curand_init(individual, 0, 0, prngState + individual);
+        curand_init(individual + seed, 0, 0, prngState + individual);
     }
 }
 
@@ -104,7 +128,7 @@ __device__ bool contains(IND_TYPE* neighbors, uint32_t count, IND_TYPE neighbor)
 __global__ void setup_network(
     IND_TYPE* network, CON_TYPE* connections,
     uint32_t population_count, uint32_t connection_count,
-    float infectious_duration, float r0,
+    float infectious_duration, float r0, float r0_std,
     curandState* prngStates)
 {
     uint32_t individual = (blockDim.x * blockIdx.x) + threadIdx.x;
@@ -113,6 +137,8 @@ __global__ void setup_network(
     {
         IND_TYPE* neighbors = network +     (connection_count * individual);
         CON_TYPE* weights   = connections + (connection_count * individual);
+        curandState* prngState = prngStates + individual;
+        float Rcurr = curand_log_normal(prngState, r0, r0_std);
         for (uint32_t connection = 0; connection < connection_count; ++connection)
         {
             uint32_t neighbor;
@@ -124,7 +150,7 @@ __global__ void setup_network(
 
             neighbors[connection] = neighbor;
             // TODO - consider distribution around this value? Gaussian/normal?
-            weights[connection] = CON_TYPE(r0 / (infectious_duration * connection_count));
+            weights[connection] = CON_TYPE(Rcurr / (infectious_duration * connection_count));
         }
     }
 }
