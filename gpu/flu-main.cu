@@ -44,6 +44,7 @@ void AllocateState(SimulationState& state, Configuration& config);
 void InitializeState(SimulationState& state, Configuration& config);
 void SaveStateToFile(SimulationState& state, Configuration& config);
 void WriteTransmissionEventsToFile( SimulationState& state, Configuration& config );
+void WriteRecoveryCountsToFile( SimulationState& state, Configuration& config );
 
 void DisplayNetwork( SimulationState& state );
 void DisplayInfected( IND_TYPE* queue_exp, TIMER_TYPE* timers_exp, uint32_t count_exp,
@@ -110,6 +111,7 @@ int main(int argc, const char* argv[])
                 currently_exposed, current_timers_exp, &state.counters->exposed_currently,
                 currently_infected, current_timers_inf, &state.counters->infected_currently,
                 &state.counters->transmissions, state.tx_events,
+		&state.recovery_count[step],
                 state.prngStates
             );
             CheckReturn(cudaDeviceSynchronize());
@@ -137,6 +139,7 @@ int main(int argc, const char* argv[])
     std::cout << (1000 * uint64_t(end - start) / double(CLOCKS_PER_SEC)) << " milliseconds for simulation." << std::endl;
 
     WriteTransmissionEventsToFile( state, config );
+    WriteRecoveryCountsToFile( state, config );
 
     return 0;
 }
@@ -269,26 +272,27 @@ void DisplayInfected( IND_TYPE* exposed_queue, TIMER_TYPE* exposed_timers, uint3
 
 void AllocateState(SimulationState& state, Configuration& config)
 {
-    CheckReturn(cudaMallocManaged(&state.network_m,    config.population_size * config.max_connections * sizeof(IND_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.connect_m,    config.population_size * config.max_connections * sizeof(CON_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.prngStates,   config.population_size * sizeof(curandState)));
-    CheckReturn(cudaMallocManaged(&state.queue_a_exp,  config.population_size * sizeof(IND_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.queue_b_exp,  config.population_size * sizeof(IND_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.queue_a_inf,  config.population_size * sizeof(IND_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.queue_b_inf,  config.population_size * sizeof(IND_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.timers_a_exp, config.population_size * sizeof(TIMER_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.timers_b_exp, config.population_size * sizeof(TIMER_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.timers_a_inf, config.population_size * sizeof(TIMER_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.timers_b_inf, config.population_size * sizeof(TIMER_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.status_v,     config.population_size * sizeof(INF_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.tx_events,    config.population_size * sizeof(TxEvent)));
-    CheckReturn(cudaMallocManaged(&state.counters,     sizeof(Counters)));
+    CheckReturn(cudaMallocManaged(&state.network_m,      config.population_size * config.max_connections * sizeof(IND_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.connect_m,      config.population_size * config.max_connections * sizeof(CON_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.prngStates,     config.population_size * sizeof(curandState)));
+    CheckReturn(cudaMallocManaged(&state.queue_a_exp,    config.population_size * sizeof(IND_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.queue_b_exp,    config.population_size * sizeof(IND_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.queue_a_inf,    config.population_size * sizeof(IND_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.queue_b_inf,    config.population_size * sizeof(IND_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.timers_a_exp,   config.population_size * sizeof(TIMER_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.timers_b_exp,   config.population_size * sizeof(TIMER_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.timers_a_inf,   config.population_size * sizeof(TIMER_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.timers_b_inf,   config.population_size * sizeof(TIMER_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.status_v,       config.population_size * sizeof(INF_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.tx_events,      config.population_size * sizeof(TxEvent)));
+    CheckReturn(cudaMallocManaged(&state.recovery_count, config.simulation_steps* sizeof(uint32_t)));
+    CheckReturn(cudaMallocManaged(&state.counters,       sizeof(Counters)));
 }
 
 void InitializePrngStates(SimulationState& state, Configuration& config);
 void InitializeNetwork(SimulationState& state, Configuration& config);
 void SeedInfections(SimulationState& state, Configuration& config);
-void ZeroVectors(SimulationState& state);
+void ZeroVectors(SimulationState& state, uint32_t simulation_steps);
 
 void InitializeState(SimulationState& state, Configuration& config)
 {
@@ -303,7 +307,7 @@ void InitializeState(SimulationState& state, Configuration& config)
 
     InitializePrngStates(state, config);
     InitializeNetwork(state, config);
-    ZeroVectors(state);
+    ZeroVectors(state, config.simulation_steps);
     SeedInfections(state, config);
 }
 
@@ -438,9 +442,10 @@ void SeedInfections(SimulationState& state, Configuration& config)
 }
 
 // TODO - could do this on the GPU with a tiny kernel
-void ZeroVectors(SimulationState& state)
+void ZeroVectors(SimulationState& state, uint32_t simulation_steps)
 {
     memset(state.status_v,  0, state.population_size * sizeof(INF_TYPE));
+    memset(state.recovery_count, 0, simulation_steps * sizeof(uint32_t));
 }
 
 void WriteTransmissionEventsToFile( SimulationState& state, Configuration& config )
@@ -450,6 +455,16 @@ void WriteTransmissionEventsToFile( SimulationState& state, Configuration& confi
     std::cout << "Writing " << state.counters->transmissions << " transmission events to '" << filename << "'." << std::endl;
     auto count = fwrite( state.tx_events, sizeof(TxEvent), state.counters->transmissions, file );
     std::cout << "Wrote   " << count << " transmission events to '" << filename << "'." << std::endl;
+    fclose( file );
+}
+
+void WriteRecoveryCountsToFile( SimulationState& state, Configuration& config )
+{
+    const char* filename = "recoveryCounts.bin";
+    auto file = fopen( filename, "wb" );
+    std::cout << "Writing " << config.simulation_steps << " time steps to '" << filename << "'." << std::endl;
+    auto count = fwrite( state.recovery_count, sizeof(uint32_t), config.simulation_steps, file );
+    std::cout << "Wrote   " << count << " time steps to '" << filename << "'." << std::endl;
     fclose( file );
 }
 

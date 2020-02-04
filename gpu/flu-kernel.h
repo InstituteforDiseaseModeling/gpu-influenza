@@ -39,5 +39,6 @@ __global__ void flu_kernel(
     uint32_t* infected_count,       // WO
     uint32_t* transmission_count,   // RW
     TxEvent* transmission_events,   // WO
+    uint32_t* recovery_count,       // W0
     curandState* prngStates         // RW
 );

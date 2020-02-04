@@ -16,6 +16,7 @@ __global__ void flu_kernel(
     IND_TYPE* inf_q_out, TIMER_TYPE* inf_timers_out, uint32_t* inf_queue_count, // WO
     uint32_t* transmission_count,                                               // RW
     TxEvent* transmission_events,                                               // WO
+    uint32_t* recovery_count,                                                   // WO
     curandState* prngStates)                                                    // R/W
 {
     uint32_t infected_index = (blockDim.x * blockIdx.x) + threadIdx.x;
@@ -66,6 +67,7 @@ __global__ void flu_kernel(
         }
         else
         {
+	    atomicAdd((int*)recovery_count, 1);
             status_v[source_individual] = STATUS_RECOVERED;
             // Increment number of recovered individuals
         }

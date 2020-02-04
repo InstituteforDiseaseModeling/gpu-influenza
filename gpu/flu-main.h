@@ -85,6 +85,7 @@ struct SimulationState {
     TIMER_TYPE*     timers_b_inf;
     INF_TYPE*       status_v;
     TxEvent*        tx_events;
+    uint32_t*       recovery_count;
     Counters*       counters;
 
     SimulationState()
@@ -102,6 +103,7 @@ struct SimulationState {
         , timers_a_inf(nullptr)
         , timers_b_inf(nullptr)
         , status_v(nullptr)
+	, recovery_count(nullptr)
         , counters(nullptr)
     {}
 };
