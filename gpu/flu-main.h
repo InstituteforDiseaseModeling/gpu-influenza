@@ -13,12 +13,12 @@
 #define DEFAULT_STEPS   (10)
 #define DEFAULT_SEED    (20190101)
 
-#define DEFAULT_EXPOSED_DURATION_MEAN       (1.6f)
-#define DEFAULT_EXPOSED_DURATION_STD        (0.4f)
-#define DEFAULT_INFECTIOUS_DURATION_MEAN    (1.6f)
-#define DEFAULT_INFECTIOUS_DURATION_STD     (0.4f)
-#define DEFAULT_R0                          (0.9f)
-#define DEFAULT_R0_STD                      (0.4f)
+#define DEFAULT_EXPOSED_DURATION_MEAN       (1.609438f)  // log(5)
+#define DEFAULT_EXPOSED_DURATION_STD        (0.4054651f) // log(1.5)
+#define DEFAULT_INFECTIOUS_DURATION_MEAN    (1.609438f)  // log(5)
+#define DEFAULT_INFECTIOUS_DURATION_STD     (0.4054651f) // log(1.5)
+#define DEFAULT_R0                          (0.9162907f) // log(2.5)
+#define DEFAULT_R0_STD                      (0.4054651f) // log(1.5)
 
 #define DEFAULT_OUTPUT  ("transmissions.bin")
 

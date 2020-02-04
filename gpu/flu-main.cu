@@ -202,12 +202,12 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
             else if ( strncmp(arg, "connections", len) == 0 ) { config.max_connections         = atoi(value); }
             else if ( strncmp(arg, "infections",  len) == 0 ) { config.initial_infections      = atoi(value); }
             else if ( strncmp(arg, "time",        len) == 0 ) { config.simulation_steps        = atoi(value); }
-            else if ( strncmp(arg, "durationE",   len) == 0 ) { config.exposed_duration        = atof(value); }  // float
-            else if ( strncmp(arg, "stddevE",     len) == 0 ) { config.exposed_duration_std    = atof(value); }  // float
-            else if ( strncmp(arg, "durationI",   len) == 0 ) { config.infectious_duration     = atof(value); }  // float
-            else if ( strncmp(arg, "stddevI",     len) == 0 ) { config.infectious_duration_std = atof(value); }  // float
-            else if ( strncmp(arg, "r0",          len) == 0 ) { config.r0                      = atof(value); }  // float
-            else if ( strncmp(arg, "stddevr0",    len) == 0 ) { config.r0_std                  = atof(value); }  // float
+            else if ( strncmp(arg, "durationE",   len) == 0 ) { config.exposed_duration        = log(atof(value)); }  // float
+            else if ( strncmp(arg, "stddevE",     len) == 0 ) { config.exposed_duration_std    = log(atof(value)); }  // float
+            else if ( strncmp(arg, "durationI",   len) == 0 ) { config.infectious_duration     = log(atof(value)); }  // float
+            else if ( strncmp(arg, "stddevI",     len) == 0 ) { config.infectious_duration_std = log(atof(value)); }  // float
+            else if ( strncmp(arg, "r0",          len) == 0 ) { config.r0                      = log(atof(value)); }  // float
+            else if ( strncmp(arg, "stddevr0",    len) == 0 ) { config.r0_std                  = log(atof(value)); }  // float
             else if ( strncmp(arg, "seed",        len) == 0 ) { config.prng_seed               = atoi(value); }
             else if ( strncmp(arg, "quiet",       len) == 0 ) { config.quiet = true; }
             else if ( strncmp(arg, "debug",       len) == 0 ) { config.debug = true; }
@@ -227,22 +227,22 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
 
     ValidateArguments(config);
 
-    std::cout << "Population:                       " << config.population_size          << std::endl;
-    std::cout << "Max connections: ................ " << config.max_connections          << std::endl;
-    std::cout << "Initial infections:               " << config.initial_infections       << std::endl;
-    std::cout << "Simulation duration (time steps): " << config.simulation_steps         << std::endl;
-    std::cout << "Mean exposed duration:            " << config.exposed_duration         << std::endl;
-    std::cout << "Exposed duration std dev:         " << config.exposed_duration_std     << std::endl;
-    std::cout << "Mean infectious duration:         " << config.infectious_duration      << std::endl;
-    std::cout << "Infectious duration std dev:      " << config.infectious_duration_std  << std::endl;
-    std::cout << "R0:                               " << config.r0                       << std::endl;
-    std::cout << "R0 std dev:                       " << config.r0_std                   << std::endl;
-    std::cout << "PRNG seed:                        " << config.prng_seed                << std::endl;
-    std::cout << "Input (network) filename:         " << config.input_filename.c_str()   << std::endl;
-    std::cout << "Output (transmissions) filename:  " << config.output_filename.c_str()  << std::endl;
-    std::cout << "Network (save) filename:          " << config.network_filename.c_str() << std::endl;
-    std::cout << "Quiet mode:                       " << (config.quiet ? "on" : "off")   << std::endl;
-    std::cout << "Debugging mode:                   " << (config.debug ? "on" : "off")   << std::endl;
+    std::cout << "Population:                       " << config.population_size              << std::endl;
+    std::cout << "Max connections: ................ " << config.max_connections              << std::endl;
+    std::cout << "Initial infections:               " << config.initial_infections           << std::endl;
+    std::cout << "Simulation duration (time steps): " << config.simulation_steps             << std::endl;
+    std::cout << "Mean exposed duration:            " << exp(config.exposed_duration)        << std::endl;
+    std::cout << "Exposed duration std dev:         " << exp(config.exposed_duration_std)    << std::endl;
+    std::cout << "Mean infectious duration:         " << exp(config.infectious_duration)     << std::endl;
+    std::cout << "Infectious duration std dev:      " << exp(config.infectious_duration_std) << std::endl;
+    std::cout << "R0:                               " << exp(config.r0)                      << std::endl;
+    std::cout << "R0 std dev:                       " << exp(config.r0_std)                  << std::endl;
+    std::cout << "PRNG seed:                        " << config.prng_seed                    << std::endl;
+    std::cout << "Input (network) filename:         " << config.input_filename.c_str()       << std::endl;
+    std::cout << "Output (transmissions) filename:  " << config.output_filename.c_str()      << std::endl;
+    std::cout << "Network (save) filename:          " << config.network_filename.c_str()     << std::endl;
+    std::cout << "Quiet mode:                       " << (config.quiet ? "on" : "off")       << std::endl;
+    std::cout << "Debugging mode:                   " << (config.debug ? "on" : "off")       << std::endl;
 }
 
 void DisplayNetwork( SimulationState& state )
