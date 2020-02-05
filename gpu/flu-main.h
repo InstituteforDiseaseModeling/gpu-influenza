@@ -20,6 +20,11 @@
 #define DEFAULT_R0                          (0.9162907f) // log(2.5)
 #define DEFAULT_R0_STD                      (0.4054651f) // log(1.5)
 
+#define DEFAULT_INTERVENTIONS               (0) 
+#define DEFAULT_TIMES                       (0) 
+#define DEFAULT_EFFECTIVENESS               (0) 
+#define DEFAULT_COVERAGE                    (0) 
+
 #define DEFAULT_OUTPUT  ("transmissions.bin")
 
 struct Configuration {
@@ -39,6 +44,10 @@ struct Configuration {
     std::string input_filename;
     std::string output_filename;
     std::string network_filename;
+    uint32_t    intervention_num;
+    uint32_t    intervention_times;
+    uint32_t    intervention_effectiveness;
+    uint32_t    intervention_coverage;
 
     Configuration()
         : population_size(DEFAULT_POP)
@@ -57,6 +66,10 @@ struct Configuration {
         , input_filename("")
         , output_filename(DEFAULT_OUTPUT)
         , network_filename("")
+	, intervention_num(DEFAULT_INTERVENTIONS)
+	, intervention_times(DEFAULT_TIMES)
+	, intervention_effectiveness(DEFAULT_EFFECTIVENESS)
+	, intervention_coverage(DEFAULT_COVERAGE)
     {}
 };
 
@@ -74,6 +87,7 @@ struct SimulationState {
     uint32_t        max_connections;
     IND_TYPE*       network_m;
     CON_TYPE*       connect_m;
+    CON_TYPE*       beta_factor;
     curandState*    prngStates;
     IND_TYPE*       queue_a_exp;
     IND_TYPE*       queue_b_exp;
@@ -85,7 +99,6 @@ struct SimulationState {
     TIMER_TYPE*     timers_b_inf;
     INF_TYPE*       status_v;
     TxEvent*        tx_events;
-    uint32_t*       recovery_count;
     Counters*       counters;
 
     SimulationState()
@@ -93,6 +106,7 @@ struct SimulationState {
         , max_connections(0)
         , network_m(nullptr)
         , connect_m(nullptr)
+        , beta_factor(nullptr)
         , prngStates(nullptr)
         , queue_a_exp(nullptr)
         , queue_b_exp(nullptr)
@@ -103,7 +117,6 @@ struct SimulationState {
         , timers_a_inf(nullptr)
         , timers_b_inf(nullptr)
         , status_v(nullptr)
-	, recovery_count(nullptr)
         , counters(nullptr)
     {}
 };

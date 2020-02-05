@@ -14,7 +14,8 @@
 #define STATUS_RECOVERED   (3)
 
 struct TxEvent {
-    IND_TYPE    source;
-    IND_TYPE    target;
-    uint32_t    time_step;
+    int32_t    source;
+    int32_t    time_exposed;
+    int32_t    time_infectious;
+    int32_t    time_recovered;
 };

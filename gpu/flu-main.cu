@@ -44,7 +44,6 @@ void AllocateState(SimulationState& state, Configuration& config);
 void InitializeState(SimulationState& state, Configuration& config);
 void SaveStateToFile(SimulationState& state, Configuration& config);
 void WriteTransmissionEventsToFile( SimulationState& state, Configuration& config );
-void WriteRecoveryCountsToFile( SimulationState& state, Configuration& config );
 
 void DisplayNetwork( SimulationState& state );
 void DisplayInfected( IND_TYPE* queue_exp, TIMER_TYPE* timers_exp, uint32_t count_exp,
@@ -96,7 +95,6 @@ int main(int argc, const char* argv[])
         current_timers_inf  = ((step & 1) ? state.timers_a_inf : state.timers_b_inf);
 
         grid.x = (state.counters->infected_previously + state.counters->exposed_previously + block.x - 1) / block.x;
-        std::cout << std::endl;
         if ( grid.x > 0 )
         {
             flu_kernel<<<grid, block>>>(
@@ -104,14 +102,13 @@ int main(int argc, const char* argv[])
                 state.population_size, state.max_connections,
                 config.exposed_duration, config.exposed_duration_std,
                 config.infectious_duration, config.infectious_duration_std,
-                state.network_m, state.connect_m,
+                state.network_m, state.connect_m, state.beta_factor,
                 previously_exposed, previous_timers_exp, state.counters->exposed_previously,
                 previously_infected, previous_timers_inf, state.counters->infected_previously,
                 state.status_v, 
                 currently_exposed, current_timers_exp, &state.counters->exposed_currently,
                 currently_infected, current_timers_inf, &state.counters->infected_currently,
                 &state.counters->transmissions, state.tx_events,
-		&state.recovery_count[step],
                 state.prngStates
             );
             CheckReturn(cudaDeviceSynchronize());
@@ -139,7 +136,6 @@ int main(int argc, const char* argv[])
     std::cout << (1000 * uint64_t(end - start) / double(CLOCKS_PER_SEC)) << " milliseconds for simulation." << std::endl;
 
     WriteTransmissionEventsToFile( state, config );
-    WriteRecoveryCountsToFile( state, config );
 
     return 0;
 }
@@ -148,22 +144,26 @@ void ShowHelp(const char* name)
 {
     std::cout << std::endl;
     std::cout << name << ':' << std::endl;
-    std::cout << "\t--population:#     - population size [" << DEFAULT_POP << ']' << std::endl;
-    std::cout << "\t--connections:#    - per agent network degree [" << DEFAULT_CONS << ']' << std::endl;
-    std::cout << "\t--infections:#     - number of initial infections [" << DEFAULT_INFS << ']' << std::endl;
-    std::cout << "\t--time:#           - number of time steps [" << DEFAULT_STEPS << ']' << std::endl;
-    std::cout << "\t--durationE:#      - mean exposure duration (days) [" << DEFAULT_EXPOSED_DURATION_MEAN << ']' << std::endl;
-    std::cout << "\t--stddevE:#        - exposure duration std dev (days) [" << DEFAULT_EXPOSED_DURATION_STD << ']' << std::endl;
-    std::cout << "\t--durationI:#      - mean infectious duration (days) [" << DEFAULT_INFECTIOUS_DURATION_MEAN << ']' << std::endl;
-    std::cout << "\t--stddevI:#        - infectious duration std dev (days) [" << DEFAULT_INFECTIOUS_DURATION_STD << ']' << std::endl;
-    std::cout << "\t--r0:#             - mean r0 [" << DEFAULT_R0 << ']' << std::endl;
-    std::cout << "\t--stddevr0:#       - r0 std dev [" << DEFAULT_R0 << ']' << std::endl;
-    std::cout << "\t--seed:#           - random number seed [" << DEFAULT_SEED << ']' << std::endl;
-    std::cout << "\t--input:filename   - name of file with network data [ none ]" << std::endl;
-    std::cout << "\t--output:filename  - name of file for transmission data [ '" << DEFAULT_OUTPUT << "' ]" << std::endl;
-    std::cout << "\t--network:filename - name of file for saving network data [ none ]" << std::endl;
-    std::cout << "\t--quiet            - do not display state during execution" << std::endl;
-    std::cout << "\t--debug            - display debugging information" << std::endl;
+    std::cout << "\t--population:#       - population size [" << DEFAULT_POP << ']' << std::endl;
+    std::cout << "\t--connections:#      - per agent network degree [" << DEFAULT_CONS << ']' << std::endl;
+    std::cout << "\t--infections:#       - number of initial infections [" << DEFAULT_INFS << ']' << std::endl;
+    std::cout << "\t--time:#             - number of time steps [" << DEFAULT_STEPS << ']' << std::endl;
+    std::cout << "\t--durationE:#        - mean exposure duration (days) [" << DEFAULT_EXPOSED_DURATION_MEAN << ']' << std::endl;
+    std::cout << "\t--stddevE:#          - exposure duration std dev (days) [" << DEFAULT_EXPOSED_DURATION_STD << ']' << std::endl;
+    std::cout << "\t--durationI:#        - mean infectious duration (days) [" << DEFAULT_INFECTIOUS_DURATION_MEAN << ']' << std::endl;
+    std::cout << "\t--stddevI:#          - infectious duration std dev (days) [" << DEFAULT_INFECTIOUS_DURATION_STD << ']' << std::endl;
+    std::cout << "\t--r0:#               - mean r0 [" << DEFAULT_R0 << ']' << std::endl;
+    std::cout << "\t--stddevr0:#         - r0 std dev [" << DEFAULT_R0 << ']' << std::endl;
+    std::cout << "\t--seed:#             - random number seed [" << DEFAULT_SEED << ']' << std::endl;
+    std::cout << "\t--input:filename     - name of file with network data [ none ]" << std::endl;
+    std::cout << "\t--output:filename    - name of file for transmission data [ '" << DEFAULT_OUTPUT << "' ]" << std::endl;
+    std::cout << "\t--network:filename   - name of file for saving network data [ none ]" << std::endl;
+    std::cout << "\t--quiet              - do not display state during execution" << std::endl;
+    std::cout << "\t--debug              - display debugging information" << std::endl;
+    std::cout << "\t--interventions:#    - number of interventions [" << DEFAULT_INTERVENTIONS << "]" << std::endl;
+    std::cout << "\t--interveneTimes:#,# - time points to apply interventions [" << DEFAULT_TIMES << "]" << std::endl;
+    std::cout << "\t--effectiveness:#,#  - effectiveness of each intervention [" << DEFAULT_EFFECTIVENESS << "]" << std::endl;
+    std::cout << "\t--coverage:#,#       - coverage of each intervention [" << DEFAULT_COVERAGE << "]" << std::endl;
     std::cout << std::endl;
     exit(-1);
 }
@@ -182,6 +182,22 @@ void ValidateArguments(Configuration& config)
     if ( config.infectious_duration_std <= 0.0f ) { std::cerr << "infectious duration std must be > 0" << std::endl; okay = false; }
     if ( config.r0 <= 0.0f )                      { std::cerr << "r0 must be > 0"                      << std::endl; okay = false; }
     if ( config.r0_std < 0.0f )                   { std::cerr << "r0 std must be >= 0"                 << std::endl; okay = false; }
+    if ( config.intervention_num < 0.0f )         { std::cerr << "number of interventions must be >= 0"<< std::endl; okay = false; }
+    //for(int i=0; i<config.intervention_num; i++){
+    //    if ( config.intervention_times[i] < 0.0f ){
+    //       	std::cerr << "The time of an interventions must be >= 0"<< std::endl; okay = false;
+    //   	}
+    //}
+    //for(int i=0; i<config.intervention_num; i++){
+    //    if ( config.intervention_effectiveness[i] < 0.0f || config.intervention_effectiveness[i] > 1.0f){
+    //       	std::cerr << "The effectiveness of an intervention must be between 0 and 1 (0% and 100%) "<< std::endl; okay = false;
+    //   	}
+    //}
+    //for(int i=0; i<config.intervention_num; i++){
+    //    if ( config.intervention_coverage[i] < 0.0f || config.intervention_coverage[i] > 1.0f){
+    //       	std::cerr << "The coverage of an intervention must be between 0 and 1 (0% and 100%) "<< std::endl; okay = false;
+    //   	}
+    //}
 
     if ( !okay ) { exit(-1); }
 
@@ -201,22 +217,24 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
             const char* value = arg + len + 1;
 
             if ( strncmp(arg, "help", len) == 0 ) { ShowHelp(argv[0]); }
-            else if ( strncmp(arg, "population",  len) == 0 ) { config.population_size         = atoi(value); }
-            else if ( strncmp(arg, "connections", len) == 0 ) { config.max_connections         = atoi(value); }
-            else if ( strncmp(arg, "infections",  len) == 0 ) { config.initial_infections      = atoi(value); }
-            else if ( strncmp(arg, "time",        len) == 0 ) { config.simulation_steps        = atoi(value); }
-            else if ( strncmp(arg, "durationE",   len) == 0 ) { config.exposed_duration        = log(atof(value)); }  // float
-            else if ( strncmp(arg, "stddevE",     len) == 0 ) { config.exposed_duration_std    = log(atof(value)); }  // float
-            else if ( strncmp(arg, "durationI",   len) == 0 ) { config.infectious_duration     = log(atof(value)); }  // float
-            else if ( strncmp(arg, "stddevI",     len) == 0 ) { config.infectious_duration_std = log(atof(value)); }  // float
-            else if ( strncmp(arg, "r0",          len) == 0 ) { config.r0                      = log(atof(value)); }  // float
-            else if ( strncmp(arg, "stddevr0",    len) == 0 ) { config.r0_std                  = log(atof(value)); }  // float
-            else if ( strncmp(arg, "seed",        len) == 0 ) { config.prng_seed               = atoi(value); }
-            else if ( strncmp(arg, "quiet",       len) == 0 ) { config.quiet = true; }
-            else if ( strncmp(arg, "debug",       len) == 0 ) { config.debug = true; }
-            else if ( strncmp(arg, "input",       len) == 0 ) { config.input_filename   = std::string(value); }
-            else if ( strncmp(arg, "output",      len) == 0 ) { config.output_filename  = std::string(value); }
-            else if ( strncmp(arg, "network",     len) == 0 ) { config.network_filename = std::string(value); }
+            else if ( strncmp(arg, "population",     len) == 0 ) { config.population_size         = atoi(value); }
+            else if ( strncmp(arg, "connections",    len) == 0 ) { config.max_connections         = atoi(value); }
+            else if ( strncmp(arg, "infections",     len) == 0 ) { config.initial_infections      = atoi(value); }
+            else if ( strncmp(arg, "time",           len) == 0 ) { config.simulation_steps        = atoi(value); }
+            else if ( strncmp(arg, "durationE",      len) == 0 ) { config.exposed_duration        = log(atof(value)); }  // float
+            else if ( strncmp(arg, "stddevE",        len) == 0 ) { config.exposed_duration_std    = log(atof(value)); }  // float
+            else if ( strncmp(arg, "durationI",      len) == 0 ) { config.infectious_duration     = log(atof(value)); }  // float
+            else if ( strncmp(arg, "stddevI",        len) == 0 ) { config.infectious_duration_std = log(atof(value)); }  // float
+            else if ( strncmp(arg, "r0",             len) == 0 ) { config.r0                      = log(atof(value)); }  // float
+            else if ( strncmp(arg, "stddevr0",       len) == 0 ) { config.r0_std                  = log(atof(value)); }  // float
+            else if ( strncmp(arg, "seed",           len) == 0 ) { config.prng_seed               = atoi(value); }
+            else if ( strncmp(arg, "quiet",          len) == 0 ) { config.quiet = true; }
+            else if ( strncmp(arg, "debug",          len) == 0 ) { config.debug = true; }
+            else if ( strncmp(arg, "input",          len) == 0 ) { config.input_filename   = std::string(value); }
+            else if ( strncmp(arg, "output",         len) == 0 ) { config.output_filename  = std::string(value); }
+            else if ( strncmp(arg, "network",        len) == 0 ) { config.network_filename = std::string(value); }
+            else if ( strncmp(arg, "interventions",  len) == 0 ) { config.intervention_num = atoi(value); }
+            else if ( strncmp(arg, "interveneTimes", len) == 0 ) { config.intervention_num = atoi(value); }
             else
             {
                 std::cerr << "Unknown command line argument '" << argv[index] << "'." << std::endl;
@@ -274,6 +292,7 @@ void AllocateState(SimulationState& state, Configuration& config)
 {
     CheckReturn(cudaMallocManaged(&state.network_m,      config.population_size * config.max_connections * sizeof(IND_TYPE)));
     CheckReturn(cudaMallocManaged(&state.connect_m,      config.population_size * config.max_connections * sizeof(CON_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.beta_factor,    config.population_size * sizeof(CON_TYPE)));
     CheckReturn(cudaMallocManaged(&state.prngStates,     config.population_size * sizeof(curandState)));
     CheckReturn(cudaMallocManaged(&state.queue_a_exp,    config.population_size * sizeof(IND_TYPE)));
     CheckReturn(cudaMallocManaged(&state.queue_b_exp,    config.population_size * sizeof(IND_TYPE)));
@@ -285,7 +304,6 @@ void AllocateState(SimulationState& state, Configuration& config)
     CheckReturn(cudaMallocManaged(&state.timers_b_inf,   config.population_size * sizeof(TIMER_TYPE)));
     CheckReturn(cudaMallocManaged(&state.status_v,       config.population_size * sizeof(INF_TYPE)));
     CheckReturn(cudaMallocManaged(&state.tx_events,      config.population_size * sizeof(TxEvent)));
-    CheckReturn(cudaMallocManaged(&state.recovery_count, config.simulation_steps* sizeof(uint32_t)));
     CheckReturn(cudaMallocManaged(&state.counters,       sizeof(Counters)));
 }
 
@@ -444,8 +462,11 @@ void SeedInfections(SimulationState& state, Configuration& config)
 // TODO - could do this on the GPU with a tiny kernel
 void ZeroVectors(SimulationState& state, uint32_t simulation_steps)
 {
-    memset(state.status_v,  0, state.population_size * sizeof(INF_TYPE));
-    memset(state.recovery_count, 0, simulation_steps * sizeof(uint32_t));
+    dim3 blocks(BLOCK_SIZE, 1, 1);
+    dim3 grid((state.population_size + BLOCK_SIZE - 1) / BLOCK_SIZE, 1, 1);
+    initialize_vectors<<<grid, blocks>>>(state.status_v, state.beta_factor, state.tx_events, state.population_size);
+    CheckReturn(cudaDeviceSynchronize());
+    CheckReturn(cudaGetLastError());
 }
 
 void WriteTransmissionEventsToFile( SimulationState& state, Configuration& config )
@@ -453,18 +474,8 @@ void WriteTransmissionEventsToFile( SimulationState& state, Configuration& confi
     const char* filename = config.output_filename.c_str();
     auto file = fopen( filename, "wb" );
     std::cout << "Writing " << state.counters->transmissions << " transmission events to '" << filename << "'." << std::endl;
-    auto count = fwrite( state.tx_events, sizeof(TxEvent), state.counters->transmissions, file );
+    auto count = fwrite( state.tx_events, sizeof(TxEvent), state.population_size, file );
     std::cout << "Wrote   " << count << " transmission events to '" << filename << "'." << std::endl;
-    fclose( file );
-}
-
-void WriteRecoveryCountsToFile( SimulationState& state, Configuration& config )
-{
-    const char* filename = "recoveryCounts.bin";
-    auto file = fopen( filename, "wb" );
-    std::cout << "Writing " << config.simulation_steps << " time steps to '" << filename << "'." << std::endl;
-    auto count = fwrite( state.recovery_count, sizeof(uint32_t), config.simulation_steps, file );
-    std::cout << "Wrote   " << count << " time steps to '" << filename << "'." << std::endl;
     fclose( file );
 }
 

@@ -8,6 +8,9 @@
 
 __global__ void initialize_prng(curandState* prngState, uint32_t population, uint32_t seed);
 
+__global__ void initialize_vectors(INF_TYPE* status_v, CON_TYPE* beta_adjust, TxEvent* transmission_events,
+	       	uint32_t population_count);
+
 __global__ void setup_network(
     IND_TYPE* network, CON_TYPE* connections,
     uint32_t population_count, uint32_t connection_count,
@@ -24,6 +27,7 @@ __global__ void flu_kernel(
     float std_duration_inf,         // RO
     IND_TYPE* network_matrix,       // RO
     CON_TYPE* connections_matrix,   // RO
+    CON_TYPE* beta_adjust,          // RO
     IND_TYPE* exposped_queue_in,    // RO
     TIMER_TYPE* exp_timers_in,      // RO
     uint32_t exposed_size,          // RO
@@ -39,6 +43,5 @@ __global__ void flu_kernel(
     uint32_t* infected_count,       // WO
     uint32_t* transmission_count,   // RW
     TxEvent* transmission_events,   // WO
-    uint32_t* recovery_count,       // W0
     curandState* prngStates         // RW
 );

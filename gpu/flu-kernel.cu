@@ -8,7 +8,7 @@ __global__ void flu_kernel(
     uint32_t population_size, uint32_t connection_count,                        // RO
     float mean_duration_inc, float stddev_duration_inc,                         // RO
     float mean_duration_inf, float stddev_duration_inf,                         // RO
-    IND_TYPE* network_m, CON_TYPE* connect_m,                                   // RO
+    IND_TYPE* network_m, CON_TYPE* connect_m, CON_TYPE* beta_adjust,            // RO
     IND_TYPE* exp_q_in, TIMER_TYPE* exp_timers_in, uint32_t exp_queue_size,     // RO
     IND_TYPE* inf_q_in, TIMER_TYPE* inf_timers_in, uint32_t inf_queue_size,     // RO
     INF_TYPE* status_v,                                                         // R/W
@@ -16,7 +16,6 @@ __global__ void flu_kernel(
     IND_TYPE* inf_q_out, TIMER_TYPE* inf_timers_out, uint32_t* inf_queue_count, // WO
     uint32_t* transmission_count,                                               // RW
     TxEvent* transmission_events,                                               // WO
-    uint32_t* recovery_count,                                                   // WO
     curandState* prngStates)                                                    // R/W
 {
     uint32_t infected_index = (blockDim.x * blockIdx.x) + threadIdx.x;
@@ -38,7 +37,7 @@ __global__ void flu_kernel(
             {
                 curandState* prngState = prngStates + source_individual;
                 CON_TYPE draw = CON_TYPE(curand_uniform(prngState));
-                if (draw < susceptibility[neighbor_index])
+                if (draw < (susceptibility[neighbor_index]*(CON_TYPE)beta_adjust[source_individual]))
                 {
                     INF_TYPE infected = atomicExch(&status_v[target_individual], INF_TYPE(STATUS_EXPOSED));
                     if ( !infected )
@@ -50,9 +49,8 @@ __global__ void flu_kernel(
                         exp_timers_out[queue_index] = TIMER_TYPE(max(duration, 1)); // At least one day.
 
                         uint32_t event_index = atomicAdd((int*)transmission_count, 1);
-                        transmission_events[event_index].source    = source_individual;
-                        transmission_events[event_index].target    = target_individual;
-                        transmission_events[event_index].time_step = simulation_step;
+                        transmission_events[target_individual].source       = source_individual;
+                        transmission_events[target_individual].time_exposed = simulation_step;
                     }
                 }
             }
@@ -67,9 +65,9 @@ __global__ void flu_kernel(
         }
         else
         {
-	    atomicAdd((int*)recovery_count, 1);
-            status_v[source_individual] = STATUS_RECOVERED;
             // Increment number of recovered individuals
+            status_v[source_individual] = STATUS_RECOVERED;
+	    transmission_events[source_individual].time_recovered = simulation_step;
         }
     } else if(infected_index < (inf_queue_size+exp_queue_size))
     {
@@ -84,13 +82,14 @@ __global__ void flu_kernel(
         }
         else
         {
+            // Increment number of recovered individuals
             uint32_t queue_index = atomicAdd((int*)inf_queue_count, 1);
             inf_q_out[queue_index] = source_individual;
             curandState* prngState = prngStates + source_individual;
             int32_t duration = __float2int_rn(curand_log_normal(prngState, mean_duration_inf, stddev_duration_inf));
             inf_timers_out[queue_index] = TIMER_TYPE(max(duration, 1)); // At least one day.
             status_v[source_individual] = STATUS_INFECTIOUS;
-            // Increment number of recovered individuals
+	    transmission_events[source_individual].time_infectious = simulation_step;
         }
     }
 }
@@ -154,5 +153,21 @@ __global__ void setup_network(
             // TODO - consider distribution around this value? Gaussian/normal?
             weights[connection] = CON_TYPE(Rcurr / (infectious_duration * connection_count));
         }
+    }
+}
+
+__global__ void initialize_vectors(
+    INF_TYPE* status_v, CON_TYPE* beta_adjust, TxEvent* transmission_events, uint32_t population_count)
+{
+    uint32_t individual = (blockDim.x * blockIdx.x) + threadIdx.x;
+
+    if ( individual < population_count )
+    {
+       status_v[individual]                            = STATUS_SUSCEPTIBLE;
+       beta_adjust[individual]                         = 1.0f;
+       transmission_events[individual].source          = -1;
+       transmission_events[individual].time_exposed    = -1;
+       transmission_events[individual].time_infectious = -1;
+       transmission_events[individual].time_recovered  = -1;
     }
 }
