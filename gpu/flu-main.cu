@@ -58,6 +58,12 @@ int main(int argc, const char* argv[])
 
     AllocateState(state, config);
     InitializeState(state, config);
+    uint32_t intervention = 0;
+    uint32_t intervention_start = config.simulation_steps;
+    if(config.intervention_num>intervention)
+    {
+        intervention_start = config.intervention_times[intervention];
+    }
 
     DisplayNetwork( state );
     DisplayInfected( state.queue_a_exp, state.timers_a_exp, state.counters->exposed_currently,
@@ -114,6 +120,19 @@ int main(int argc, const char* argv[])
             CheckReturn(cudaDeviceSynchronize());
             CheckReturn(cudaGetLastError());
 
+	    if (intervention_start == step)
+	    {
+                flu_vaccinate<<<grid, block>>>(state.beta_factor, config.intervention_effectiveness[intervention],
+				config.intervention_coverage[intervention],
+				state.population_size, state.prngStates);
+		intervention++;
+                if(config.intervention_num>intervention)
+                {
+                    intervention_start = config.intervention_times[intervention];
+                }
+
+	    }
+
             if ( config.debug )
             {
                 uint32_t w = uint32_t(log10(config.simulation_steps)) + 1;
@@ -136,6 +155,10 @@ int main(int argc, const char* argv[])
     std::cout << (1000 * uint64_t(end - start) / double(CLOCKS_PER_SEC)) << " milliseconds for simulation." << std::endl;
 
     WriteTransmissionEventsToFile( state, config );
+
+    free(config.intervention_times);
+    free(config.intervention_effectiveness);
+    free(config.intervention_coverage);
 
     return 0;
 }
@@ -161,9 +184,9 @@ void ShowHelp(const char* name)
     std::cout << "\t--quiet              - do not display state during execution" << std::endl;
     std::cout << "\t--debug              - display debugging information" << std::endl;
     std::cout << "\t--interventions:#    - number of interventions [" << DEFAULT_INTERVENTIONS << "]" << std::endl;
-    std::cout << "\t--interveneTimes:#,# - time points to apply interventions [" << DEFAULT_TIMES << "]" << std::endl;
-    std::cout << "\t--effectiveness:#,#  - effectiveness of each intervention [" << DEFAULT_EFFECTIVENESS << "]" << std::endl;
-    std::cout << "\t--coverage:#,#       - coverage of each intervention [" << DEFAULT_COVERAGE << "]" << std::endl;
+    std::cout << "\t--interveneTimes:#,# - time points to apply interventions" << std::endl;
+    std::cout << "\t--effectiveness:#,#  - effectiveness of each intervention" << std::endl;
+    std::cout << "\t--coverage:#,#       - coverage of each intervention" << std::endl;
     std::cout << std::endl;
     exit(-1);
 }
@@ -183,26 +206,29 @@ void ValidateArguments(Configuration& config)
     if ( config.r0 <= 0.0f )                      { std::cerr << "r0 must be > 0"                      << std::endl; okay = false; }
     if ( config.r0_std < 0.0f )                   { std::cerr << "r0 std must be >= 0"                 << std::endl; okay = false; }
     if ( config.intervention_num < 0.0f )         { std::cerr << "number of interventions must be >= 0"<< std::endl; okay = false; }
-    //for(int i=0; i<config.intervention_num; i++){
-    //    if ( config.intervention_times[i] < 0.0f ){
-    //       	std::cerr << "The time of an interventions must be >= 0"<< std::endl; okay = false;
-    //   	}
-    //}
-    //for(int i=0; i<config.intervention_num; i++){
-    //    if ( config.intervention_effectiveness[i] < 0.0f || config.intervention_effectiveness[i] > 1.0f){
-    //       	std::cerr << "The effectiveness of an intervention must be between 0 and 1 (0% and 100%) "<< std::endl; okay = false;
-    //   	}
-    //}
-    //for(int i=0; i<config.intervention_num; i++){
-    //    if ( config.intervention_coverage[i] < 0.0f || config.intervention_coverage[i] > 1.0f){
-    //       	std::cerr << "The coverage of an intervention must be between 0 and 1 (0% and 100%) "<< std::endl; okay = false;
-    //   	}
-    //}
+    for(int i=0; i<config.intervention_num; i++){
+        if ( config.intervention_times[i] < 0.0f ){
+           	std::cerr << "The time of an interventions must be >= 0"<< std::endl; okay = false;
+       	}
+    }
+    for(int i=0; i<config.intervention_num; i++){
+        if ( config.intervention_effectiveness[i] < 0.0f || config.intervention_effectiveness[i] > 1.0f){
+           	std::cerr << "The effectiveness of an intervention must be between 0 and 1 (0% and 100%) "<< std::endl; okay = false;
+       	}
+    }
+    for(int i=0; i<config.intervention_num; i++){
+        if ( config.intervention_coverage[i] < 0.0f || config.intervention_coverage[i] > 1.0f){
+           	std::cerr << "The coverage of an intervention must be between 0 and 1 (0% and 100%) "<< std::endl; okay = false;
+       	}
+    }
 
     if ( !okay ) { exit(-1); }
 
     return;
 }
+
+void ReadArray(uint32_t expectedSize, float* outputArray, const char* arg);
+void ReadArray(uint32_t expectedSize, uint32_t* outputArray, const char* arg);
 
 void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
 {
@@ -233,8 +259,16 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
             else if ( strncmp(arg, "input",          len) == 0 ) { config.input_filename   = std::string(value); }
             else if ( strncmp(arg, "output",         len) == 0 ) { config.output_filename  = std::string(value); }
             else if ( strncmp(arg, "network",        len) == 0 ) { config.network_filename = std::string(value); }
-            else if ( strncmp(arg, "interventions",  len) == 0 ) { config.intervention_num = atoi(value); }
-            else if ( strncmp(arg, "interveneTimes", len) == 0 ) { config.intervention_num = atoi(value); }
+            else if ( strncmp(arg, "interventions",  len) == 0 )
+	    {
+	        config.intervention_num = atoi(value);
+		config.intervention_times = (uint32_t*)malloc(config.intervention_num*sizeof(uint32_t));
+		config.intervention_effectiveness = (float*)malloc(config.intervention_num*sizeof(float));
+		config.intervention_coverage = (float*)malloc(config.intervention_num*sizeof(float));
+	    }
+            else if ( strncmp(arg, "interveneTimes", len) == 0 ) { ReadArray(config.intervention_num, config.intervention_times, value); }
+            else if ( strncmp(arg, "effectiveness",  len) == 0 ) { ReadArray(config.intervention_num, config.intervention_effectiveness, value); }
+            else if ( strncmp(arg, "coverage",       len) == 0 ) { ReadArray(config.intervention_num, config.intervention_coverage, value); }
             else
             {
                 std::cerr << "Unknown command line argument '" << argv[index] << "'." << std::endl;
@@ -264,6 +298,46 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
     std::cout << "Network (save) filename:          " << config.network_filename.c_str()     << std::endl;
     std::cout << "Quiet mode:                       " << (config.quiet ? "on" : "off")       << std::endl;
     std::cout << "Debugging mode:                   " << (config.debug ? "on" : "off")       << std::endl;
+}
+
+void ReadArray(uint32_t expectedSize, float* outputArray, const char* arg)
+{
+    char* pch;
+    char* copy = strdup(arg);
+    int position = 0;
+    pch = strtok(copy, ",");
+    while (pch != NULL)
+    {
+        outputArray[position] = atof(pch);
+	pch = strtok(NULL, ",");
+	position++;
+    }
+    if (position != expectedSize)
+    {
+        std::cerr << "Miss-match between number of interventions asked for and number of parameters given" << std::endl;
+	exit(-1);
+    }
+    free(copy);
+}
+
+void ReadArray(uint32_t expectedSize, uint32_t* outputArray, const char* arg)
+{
+    char* pch;
+    char* copy = strdup(arg);
+    int position = 0;
+    pch = strtok(copy, ",");
+    while (pch != NULL)
+    {
+        outputArray[position] = atoi(pch);
+	pch = strtok(NULL, ",");
+	position++;
+    }
+    if (position != expectedSize)
+    {
+        std::cerr << "Miss-match between number of interventions asked for and number of parameters given" << std::endl;
+	exit(-1);
+    }
+    free(copy);
 }
 
 void DisplayNetwork( SimulationState& state )

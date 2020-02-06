@@ -21,9 +21,9 @@
 #define DEFAULT_R0_STD                      (0.4054651f) // log(1.5)
 
 #define DEFAULT_INTERVENTIONS               (0) 
-#define DEFAULT_TIMES                       (0) 
-#define DEFAULT_EFFECTIVENESS               (0) 
-#define DEFAULT_COVERAGE                    (0) 
+#define DEFAULT_TIMES                       (NULL) 
+#define DEFAULT_EFFECTIVENESS               (NULL) 
+#define DEFAULT_COVERAGE                    (NULL) 
 
 #define DEFAULT_OUTPUT  ("transmissions.bin")
 
@@ -45,9 +45,9 @@ struct Configuration {
     std::string output_filename;
     std::string network_filename;
     uint32_t    intervention_num;
-    uint32_t    intervention_times;
-    uint32_t    intervention_effectiveness;
-    uint32_t    intervention_coverage;
+    uint32_t*   intervention_times;
+    float*      intervention_effectiveness;
+    float*      intervention_coverage;
 
     Configuration()
         : population_size(DEFAULT_POP)

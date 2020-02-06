@@ -94,6 +94,23 @@ __global__ void flu_kernel(
     }
 }
 
+__global__ void flu_vaccinate(
+		CON_TYPE* beta_adjust, float effectiveness, float coverage,
+	       	uint32_t population, curandState* prngStates)
+{
+    uint32_t individual = (blockDim.x * blockIdx.x) + threadIdx.x;
+
+    if ( individual < population )
+    {
+        curandState* prngState = prngStates + individual;
+        float draw = curand_uniform(prngState);
+        if (draw < coverage)
+	{
+            beta_adjust[individual] = 1.0 - effectiveness;
+	}
+    }
+}
+
 __global__ void initialize_prng(curandState* prngState, uint32_t population, uint32_t seed)
 {
     uint32_t individual = (blockDim.x * blockIdx.x) + threadIdx.x;
