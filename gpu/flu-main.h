@@ -9,6 +9,7 @@
 
 #define DEFAULT_POP     (32)
 #define DEFAULT_CONS     (4)
+#define DEFAULT_EXPS     (0)
 #define DEFAULT_INFS     (1)
 #define DEFAULT_STEPS   (10)
 #define DEFAULT_SEED    (20190101)
@@ -20,16 +21,17 @@
 #define DEFAULT_R0                          (0.9162907f) // log(2.5)
 #define DEFAULT_R0_STD                      (0.4054651f) // log(1.5)
 
-#define DEFAULT_INTERVENTIONS               (0) 
-#define DEFAULT_TIMES                       (NULL) 
-#define DEFAULT_EFFECTIVENESS               (NULL) 
-#define DEFAULT_COVERAGE                    (NULL) 
+#define DEFAULT_VACCINATIONS                (0) 
+#define DEFAULT_VAC_TIMES                   (NULL) 
+#define DEFAULT_VAC_EFFECTIVENESS           (NULL) 
+#define DEFAULT_VAC_COVERAGE                (NULL) 
 
 #define DEFAULT_OUTPUT  ("transmissions.bin")
 
 struct Configuration {
     uint32_t    population_size;
     uint32_t    max_connections;
+    uint32_t    initial_exposures;
     uint32_t    initial_infections;
     uint32_t    simulation_steps;
     uint32_t    prng_seed;
@@ -44,14 +46,15 @@ struct Configuration {
     std::string input_filename;
     std::string output_filename;
     std::string network_filename;
-    uint32_t    intervention_num;
-    uint32_t*   intervention_times;
-    float*      intervention_effectiveness;
-    float*      intervention_coverage;
+    uint32_t    vac_num;
+    uint32_t*   vac_times;
+    float*      vac_effectiveness;
+    float*      vac_coverage;
 
     Configuration()
         : population_size(DEFAULT_POP)
         , max_connections(DEFAULT_CONS)
+        , initial_exposures(DEFAULT_EXPS)
         , initial_infections(DEFAULT_INFS)
         , simulation_steps(DEFAULT_STEPS)
         , prng_seed(DEFAULT_SEED)
@@ -66,10 +69,10 @@ struct Configuration {
         , input_filename("")
         , output_filename(DEFAULT_OUTPUT)
         , network_filename("")
-	, intervention_num(DEFAULT_INTERVENTIONS)
-	, intervention_times(DEFAULT_TIMES)
-	, intervention_effectiveness(DEFAULT_EFFECTIVENESS)
-	, intervention_coverage(DEFAULT_COVERAGE)
+	, vac_num(DEFAULT_VACCINATIONS)
+	, vac_times(DEFAULT_VAC_TIMES)
+	, vac_effectiveness(DEFAULT_VAC_EFFECTIVENESS)
+	, vac_coverage(DEFAULT_VAC_COVERAGE)
     {}
 };
 

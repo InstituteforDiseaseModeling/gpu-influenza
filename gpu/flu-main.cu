@@ -58,11 +58,11 @@ int main(int argc, const char* argv[])
 
     AllocateState(state, config);
     InitializeState(state, config);
-    uint32_t intervention = 0;
-    uint32_t intervention_start = config.simulation_steps;
-    if(config.intervention_num>intervention)
+    uint32_t vaccination = 0;
+    uint32_t vac_start = config.simulation_steps;
+    if(config.vac_num>vaccination)
     {
-        intervention_start = config.intervention_times[intervention];
+        vac_start = config.vac_times[vaccination];
     }
 
     DisplayNetwork( state );
@@ -120,15 +120,15 @@ int main(int argc, const char* argv[])
             CheckReturn(cudaDeviceSynchronize());
             CheckReturn(cudaGetLastError());
 
-	    if (intervention_start == step)
+	    if (vac_start == step)
 	    {
-                flu_vaccinate<<<grid, block>>>(state.beta_factor, config.intervention_effectiveness[intervention],
-				config.intervention_coverage[intervention],
+                flu_vaccinate<<<grid, block>>>(state.beta_factor, config.vac_effectiveness[vaccination],
+				config.vac_coverage[vaccination],
 				state.population_size, state.prngStates);
-		intervention++;
-                if(config.intervention_num>intervention)
+		vaccination++;
+                if(config.vac_num>vaccination)
                 {
-                    intervention_start = config.intervention_times[intervention];
+                    vac_start = config.vac_times[vaccination];
                 }
 
 	    }
@@ -156,9 +156,9 @@ int main(int argc, const char* argv[])
 
     WriteTransmissionEventsToFile( state, config );
 
-    free(config.intervention_times);
-    free(config.intervention_effectiveness);
-    free(config.intervention_coverage);
+    free(config.vac_times);
+    free(config.vac_effectiveness);
+    free(config.vac_coverage);
 
     return 0;
 }
@@ -169,6 +169,7 @@ void ShowHelp(const char* name)
     std::cout << name << ':' << std::endl;
     std::cout << "\t--population:#       - population size [" << DEFAULT_POP << ']' << std::endl;
     std::cout << "\t--connections:#      - per agent network degree [" << DEFAULT_CONS << ']' << std::endl;
+    std::cout << "\t--exposures:#        - number of initial exposed [" << DEFAULT_EXPS << ']' << std::endl;
     std::cout << "\t--infections:#       - number of initial infections [" << DEFAULT_INFS << ']' << std::endl;
     std::cout << "\t--time:#             - number of time steps [" << DEFAULT_STEPS << ']' << std::endl;
     std::cout << "\t--durationE:#        - mean exposure duration (days) [" << DEFAULT_EXPOSED_DURATION_MEAN << ']' << std::endl;
@@ -183,10 +184,10 @@ void ShowHelp(const char* name)
     std::cout << "\t--network:filename   - name of file for saving network data [ none ]" << std::endl;
     std::cout << "\t--quiet              - do not display state during execution" << std::endl;
     std::cout << "\t--debug              - display debugging information" << std::endl;
-    std::cout << "\t--interventions:#    - number of interventions [" << DEFAULT_INTERVENTIONS << "]" << std::endl;
-    std::cout << "\t--interveneTimes:#,# - time points to apply interventions" << std::endl;
-    std::cout << "\t--effectiveness:#,#  - effectiveness of each intervention" << std::endl;
-    std::cout << "\t--coverage:#,#       - coverage of each intervention" << std::endl;
+    std::cout << "\t--vaccinations:#     - number of vaccination events [" << DEFAULT_VACCINATIONS << "]" << std::endl;
+    std::cout << "\t--vacTimes:#,#       - time points to apply vaccination" << std::endl;
+    std::cout << "\t--vacEffect:#,#      - effectiveness of each intervention" << std::endl;
+    std::cout << "\t--vacCoverage:#,#    - coverage of each intervention" << std::endl;
     std::cout << std::endl;
     exit(-1);
 }
@@ -197,7 +198,8 @@ void ValidateArguments(Configuration& config)
 
     if ( config.population_size == 0 )            { std::cerr << "population size must be > 0"         << std::endl; okay = false; }
     if ( config.max_connections == 0 )            { std::cerr << "connections must be > 0"             << std::endl; okay = false; }
-    if ( config.initial_infections == 0 )         { std::cerr << "initial infections must be > 0"      << std::endl; okay = false; }
+    //if ( config.initial_exposures < 0 )           { std::cerr << "initial exposed must be >= 0"        << std::endl; okay = false; }
+    //if ( config.initial_infections < 0 )          { std::cerr << "initial infections must be >= 0"     << std::endl; okay = false; }
     if ( config.simulation_steps == 0 )           { std::cerr << "number of time steps must be > 0"    << std::endl; okay = false; }
     if ( config.exposed_duration <= 0.0f )        { std::cerr << "exposed duration must be > 0"        << std::endl; okay = false; }
     if ( config.exposed_duration_std <= 0.0f )    { std::cerr << "exposed duration std must be > 0"    << std::endl; okay = false; }
@@ -205,20 +207,20 @@ void ValidateArguments(Configuration& config)
     if ( config.infectious_duration_std <= 0.0f ) { std::cerr << "infectious duration std must be > 0" << std::endl; okay = false; }
     if ( config.r0 <= 0.0f )                      { std::cerr << "r0 must be > 0"                      << std::endl; okay = false; }
     if ( config.r0_std < 0.0f )                   { std::cerr << "r0 std must be >= 0"                 << std::endl; okay = false; }
-    if ( config.intervention_num < 0.0f )         { std::cerr << "number of interventions must be >= 0"<< std::endl; okay = false; }
-    for(int i=0; i<config.intervention_num; i++){
-        if ( config.intervention_times[i] < 0.0f ){
-           	std::cerr << "The time of an interventions must be >= 0"<< std::endl; okay = false;
+    if ( config.vac_num < 0.0f )                  { std::cerr << "number of vaccinations must be >= 0" << std::endl; okay = false; }
+    for(int i=0; i<config.vac_num; i++){
+        if ( config.vac_times[i] < 0.0f ){
+           	std::cerr << "The time of a vaccination must be >= 0"<< std::endl; okay = false;
        	}
     }
-    for(int i=0; i<config.intervention_num; i++){
-        if ( config.intervention_effectiveness[i] < 0.0f || config.intervention_effectiveness[i] > 1.0f){
-           	std::cerr << "The effectiveness of an intervention must be between 0 and 1 (0% and 100%) "<< std::endl; okay = false;
+    for(int i=0; i<config.vac_num; i++){
+        if ( config.vac_effectiveness[i] < 0.0f || config.vac_effectiveness[i] > 1.0f){
+           	std::cerr << "The effectiveness of a vaccine must be between 0 and 1 (0% and 100%) "<< std::endl; okay = false;
        	}
     }
-    for(int i=0; i<config.intervention_num; i++){
-        if ( config.intervention_coverage[i] < 0.0f || config.intervention_coverage[i] > 1.0f){
-           	std::cerr << "The coverage of an intervention must be between 0 and 1 (0% and 100%) "<< std::endl; okay = false;
+    for(int i=0; i<config.vac_num; i++){
+        if ( config.vac_coverage[i] < 0.0f || config.vac_coverage[i] > 1.0f){
+           	std::cerr << "The coverage of a vaccine must be between 0 and 1 (0% and 100%) "<< std::endl; okay = false;
        	}
     }
 
@@ -227,11 +229,14 @@ void ValidateArguments(Configuration& config)
     return;
 }
 
+void PrintArray(float* array, int n);
+void PrintArray(uint32_t* array, int n);
 void ReadArray(uint32_t expectedSize, float* outputArray, const char* arg);
 void ReadArray(uint32_t expectedSize, uint32_t* outputArray, const char* arg);
 
 void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
 {
+    int vac_param_num = 0;
     for (size_t index = 1; index < argc; ++index)
     {
         if (strncmp(argv[index], "--", 2) == 0)
@@ -245,6 +250,7 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
             if ( strncmp(arg, "help", len) == 0 ) { ShowHelp(argv[0]); }
             else if ( strncmp(arg, "population",     len) == 0 ) { config.population_size         = atoi(value); }
             else if ( strncmp(arg, "connections",    len) == 0 ) { config.max_connections         = atoi(value); }
+            else if ( strncmp(arg, "exposures",      len) == 0 ) { config.initial_exposures       = atoi(value); }
             else if ( strncmp(arg, "infections",     len) == 0 ) { config.initial_infections      = atoi(value); }
             else if ( strncmp(arg, "time",           len) == 0 ) { config.simulation_steps        = atoi(value); }
             else if ( strncmp(arg, "durationE",      len) == 0 ) { config.exposed_duration        = log(atof(value)); }  // float
@@ -259,16 +265,17 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
             else if ( strncmp(arg, "input",          len) == 0 ) { config.input_filename   = std::string(value); }
             else if ( strncmp(arg, "output",         len) == 0 ) { config.output_filename  = std::string(value); }
             else if ( strncmp(arg, "network",        len) == 0 ) { config.network_filename = std::string(value); }
-            else if ( strncmp(arg, "interventions",  len) == 0 )
+            else if ( strncmp(arg, "vaccinations",   len) == 0 )
 	    {
-	        config.intervention_num = atoi(value);
-		config.intervention_times = (uint32_t*)malloc(config.intervention_num*sizeof(uint32_t));
-		config.intervention_effectiveness = (float*)malloc(config.intervention_num*sizeof(float));
-		config.intervention_coverage = (float*)malloc(config.intervention_num*sizeof(float));
+	        config.vac_num = atoi(value);
+		config.vac_times = (uint32_t*)malloc(config.vac_num*sizeof(uint32_t));
+		config.vac_effectiveness = (float*)malloc(config.vac_num*sizeof(float));
+		config.vac_coverage = (float*)malloc(config.vac_num*sizeof(float));
+		vac_param_num++;
 	    }
-            else if ( strncmp(arg, "interveneTimes", len) == 0 ) { ReadArray(config.intervention_num, config.intervention_times, value); }
-            else if ( strncmp(arg, "effectiveness",  len) == 0 ) { ReadArray(config.intervention_num, config.intervention_effectiveness, value); }
-            else if ( strncmp(arg, "coverage",       len) == 0 ) { ReadArray(config.intervention_num, config.intervention_coverage, value); }
+            else if ( strncmp(arg, "vacTimes", len) == 0 ) { ReadArray(config.vac_num, config.vac_times, value); vac_param_num++;}
+            else if ( strncmp(arg, "vacEffect",  len) == 0 ) { ReadArray(config.vac_num, config.vac_effectiveness, value); vac_param_num++;}
+            else if ( strncmp(arg, "vacCoverage",       len) == 0 ) { ReadArray(config.vac_num, config.vac_coverage, value); vac_param_num++;}
             else
             {
                 std::cerr << "Unknown command line argument '" << argv[index] << "'." << std::endl;
@@ -280,10 +287,18 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
         }
     }
 
+    // check that all or none of the vaccinaton parameters were passed in
+    if(vac_param_num!=0 && vac_param_num!=4)
+    {
+        std::cerr << "Received some vaccine parameters but not all the required parameters." << std::endl;
+	exit(-1);
+    }
+
     ValidateArguments(config);
 
     std::cout << "Population:                       " << config.population_size              << std::endl;
     std::cout << "Max connections: ................ " << config.max_connections              << std::endl;
+    std::cout << "Initial exposures:                " << config.initial_exposures            << std::endl;
     std::cout << "Initial infections:               " << config.initial_infections           << std::endl;
     std::cout << "Simulation duration (time steps): " << config.simulation_steps             << std::endl;
     std::cout << "Mean exposed duration:            " << exp(config.exposed_duration)        << std::endl;
@@ -298,6 +313,28 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
     std::cout << "Network (save) filename:          " << config.network_filename.c_str()     << std::endl;
     std::cout << "Quiet mode:                       " << (config.quiet ? "on" : "off")       << std::endl;
     std::cout << "Debugging mode:                   " << (config.debug ? "on" : "off")       << std::endl;
+    std::cout << "Number of vaccination events:     " << config.vac_num                      << std::endl;
+    std::cout << "Times of vaccination events:      "; PrintArray(config.vac_times, config.vac_num);
+    std::cout << "Effectiveness of vaccine:         "; PrintArray(config.vac_effectiveness, config.vac_num);
+    std::cout << "Vacination coverage:              "; PrintArray(config.vac_coverage, config.vac_num);
+}
+
+void PrintArray(float* array, int n)
+{
+    for(int i=0; i<n; i++)
+    {
+        std::cout << array[i] << ' ';
+    }
+    std::cout << std::endl;
+}
+
+void PrintArray(uint32_t* array, int n)
+{
+    for(int i=0; i<n; i++)
+    {
+        std::cout << array[i] << ' ';
+    }
+    std::cout << std::endl;
 }
 
 void ReadArray(uint32_t expectedSize, float* outputArray, const char* arg)
@@ -312,9 +349,15 @@ void ReadArray(uint32_t expectedSize, float* outputArray, const char* arg)
 	pch = strtok(NULL, ",");
 	position++;
     }
-    if (position != expectedSize)
+    if (position == 1)
     {
-        std::cerr << "Miss-match between number of interventions asked for and number of parameters given" << std::endl;
+        for(int i = 1; i<expectedSize; i++)
+	{
+	    outputArray[i] = outputArray[0];
+	}
+    } else if (position != expectedSize)
+    {
+        std::cerr << "Miss-match between number of vaccinations asked for and number of parameters given" << std::endl;
 	exit(-1);
     }
     free(copy);
@@ -332,9 +375,15 @@ void ReadArray(uint32_t expectedSize, uint32_t* outputArray, const char* arg)
 	pch = strtok(NULL, ",");
 	position++;
     }
-    if (position != expectedSize)
+    if (position == 1)
     {
-        std::cerr << "Miss-match between number of interventions asked for and number of parameters given" << std::endl;
+        for(int i = 1; i<expectedSize; i++)
+	{
+	    outputArray[i] = outputArray[0];
+	}
+    } else if (position != expectedSize)
+    {
+        std::cerr << "Miss-match between number of vaccinations asked for and number of parameters given" << std::endl;
 	exit(-1);
     }
     free(copy);
@@ -506,13 +555,33 @@ void InitializeNetworkOnGpu(SimulationState& state, Configuration& config)
 void SeedInfections(SimulationState& state, Configuration& config)
 {
     // If we are using saved state, infections may already be present.
-    if ( config.initial_infections == 0 ) return;
+    if ( config.initial_infections == 0 && config.initial_exposures == 0) return;
 
     // prng_seed is also used on the GPU, lets flip the bits for the CPU seed.
     std::mt19937_64 generator(config.prng_seed ^ 0xFFFFFFFF);
     std::uniform_int_distribution<IND_TYPE> uniform_int(0, config.population_size - 1);
-    std::lognormal_distribution<double> duration(config.infectious_duration, config.infectious_duration_std);
+    std::lognormal_distribution<double> duration(config.exposed_duration, config.exposed_duration_std);
 
+    for (size_t j = 0; j < config.initial_exposures; ++j)
+    {
+        IND_TYPE index;
+        do
+        {
+            index = uniform_int(generator);
+        } while (state.status_v[index] != 0);
+        state.queue_a_exp[j] = index;
+        state.timers_a_exp[j] = TIMER_TYPE(std::max(uint32_t(duration(generator)+0.5), uint32_t(1))); // At least one day of infectiousness, also the +0.5 is so the cast to int rounds correctly
+        state.status_v[index] = STATUS_EXPOSED;
+
+        if (config.debug)
+        {
+            std::cout << "Individual " << index << " placed at location " << j << " with exposure period " << uint32_t(state.timers_a_exp[j]) << std::endl;
+        }
+    }
+
+    state.counters->exposed_currently = config.initial_exposures;
+
+    duration = std::lognormal_distribution<double>(config.infectious_duration, config.infectious_duration_std);
     for (size_t j = 0; j < config.initial_infections; ++j)
     {
         IND_TYPE index;
