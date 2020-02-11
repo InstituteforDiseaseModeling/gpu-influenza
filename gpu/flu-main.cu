@@ -103,13 +103,22 @@ int main(int argc, const char* argv[])
         grid.x = (state.counters->infected_previously + state.counters->exposed_previously + block.x - 1) / block.x;
         if ( grid.x > 0 )
         {
+	    flu_exposed<<<grid, block>>>(
+                step,
+                config.infectious_duration, config.infectious_duration_std,
+                previously_exposed, previous_timers_exp, state.counters->exposed_previously,
+                state.status_v, 
+                currently_exposed, current_timers_exp, &state.counters->exposed_currently,
+                currently_infected, current_timers_inf, &state.counters->infected_currently,
+                state.tx_events,
+                state.prngStates
+            );
+
             flu_kernel<<<grid, block>>>(
                 step,
                 state.population_size, state.max_connections,
                 config.exposed_duration, config.exposed_duration_std,
-                config.infectious_duration, config.infectious_duration_std,
                 state.network_m, state.connect_m, state.beta_factor,
-                previously_exposed, previous_timers_exp, state.counters->exposed_previously,
                 previously_infected, previous_timers_inf, state.counters->infected_previously,
                 state.status_v, 
                 currently_exposed, current_timers_exp, &state.counters->exposed_currently,

@@ -20,20 +20,33 @@ __global__ void setup_network(
     float infectious_duration, float r0, float r0_std,
     curandState* prngStates);
 
+__global__ void flu_exposed(
+    uint32_t simulation_step,       // RO
+    float mean_duration_inf,        // RO
+    float stddev_duration_inf,      // RO
+    IND_TYPE* exp_q_in,             // RO
+    TIMER_TYPE* exp_timers_in,      // RO
+    uint32_t exp_queue_size,        // RO
+    INF_TYPE* status_v,             // R/W
+    IND_TYPE* exp_q_out,            // WO
+    TIMER_TYPE* exp_timers_out,     // WO
+    uint32_t* exp_queue_count,      // WO
+    IND_TYPE* inf_q_out,            // WO
+    TIMER_TYPE* inf_timers_out,     // WO
+    uint32_t* inf_queue_count,      // WO
+    TxEvent* transmission_events,   // WO
+    curandState* prngStates         // R/W
+);
+
 __global__ void flu_kernel(
     uint32_t simulation_step,       // RO
     uint32_t population_size,       // RO
     uint32_t max_connections,       // RO
     float mean_duration_inc,        // RO
     float std_duration_inc,         // RO
-    float mean_duration_inf,        // RO
-    float std_duration_inf,         // RO
     IND_TYPE* network_matrix,       // RO
     CON_TYPE* connections_matrix,   // RO
     CON_TYPE* beta_adjust,          // RO
-    IND_TYPE* exposped_queue_in,    // RO
-    TIMER_TYPE* exp_timers_in,      // RO
-    uint32_t exposed_size,          // RO
     IND_TYPE* infected_queue_in,    // RO
     TIMER_TYPE* inf_timers_in,      // RO
     uint32_t infected_size,         // RO

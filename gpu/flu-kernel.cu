@@ -7,9 +7,7 @@ __global__ void flu_kernel(
     uint32_t simulation_step,                                                   // RO
     uint32_t population_size, uint32_t connection_count,                        // RO
     float mean_duration_inc, float stddev_duration_inc,                         // RO
-    float mean_duration_inf, float stddev_duration_inf,                         // RO
     IND_TYPE* network_m, CON_TYPE* connect_m, CON_TYPE* beta_adjust,            // RO
-    IND_TYPE* exp_q_in, TIMER_TYPE* exp_timers_in, uint32_t exp_queue_size,     // RO
     IND_TYPE* inf_q_in, TIMER_TYPE* inf_timers_in, uint32_t inf_queue_size,     // RO
     INF_TYPE* status_v,                                                         // R/W
     IND_TYPE* exp_q_out, TIMER_TYPE* exp_timers_out, uint32_t* exp_queue_count, // WO
@@ -29,6 +27,7 @@ __global__ void flu_kernel(
         IND_TYPE source_individual = inf_q_in[infected_index];
         IND_TYPE* neighbors = network_m + (connection_count * source_individual);
         CON_TYPE* susceptibility = connect_m + (connection_count * source_individual);
+	CON_TYPE beta_modifier = beta_adjust[source_individual];
         for (uint32_t neighbor_index = 0; neighbor_index < connection_count; ++neighbor_index)
         {
             IND_TYPE target_individual = neighbors[neighbor_index];
@@ -37,7 +36,7 @@ __global__ void flu_kernel(
             {
                 curandState* prngState = prngStates + source_individual;
                 CON_TYPE draw = CON_TYPE(curand_uniform(prngState));
-                if (draw < (susceptibility[neighbor_index]*(CON_TYPE)beta_adjust[source_individual]))
+                if (draw < (susceptibility[neighbor_index]*beta_modifier))
                 {
                     INF_TYPE infected = atomicExch(&status_v[target_individual], INF_TYPE(STATUS_EXPOSED));
                     if ( !infected )
@@ -69,9 +68,22 @@ __global__ void flu_kernel(
             status_v[source_individual] = STATUS_RECOVERED;
 	    transmission_events[source_individual].time_recovered = simulation_step;
         }
-    } else if(infected_index < (inf_queue_size+exp_queue_size))
+    }
+}
+
+__global__ void flu_exposed(
+    uint32_t simulation_step,                                                   // RO
+    float mean_duration_inf, float stddev_duration_inf,                         // RO
+    IND_TYPE* exp_q_in, TIMER_TYPE* exp_timers_in, uint32_t exp_queue_size,     // RO
+    INF_TYPE* status_v,                                                         // R/W
+    IND_TYPE* exp_q_out, TIMER_TYPE* exp_timers_out, uint32_t* exp_queue_count, // WO
+    IND_TYPE* inf_q_out, TIMER_TYPE* inf_timers_out, uint32_t* inf_queue_count, // WO
+    TxEvent* transmission_events,                                               // WO
+    curandState* prngStates)                                                    // R/W
+{
+    uint32_t exposed_index = (blockDim.x * blockIdx.x) + threadIdx.x;
+    if(exposed_index < exp_queue_size)
     {
-        uint32_t exposed_index = infected_index-inf_queue_size;
 	IND_TYPE source_individual = exp_q_in[exposed_index];
         TIMER_TYPE remaining = exp_timers_in[exposed_index] - 1;
         if (remaining > 0)
@@ -82,7 +94,7 @@ __global__ void flu_kernel(
         }
         else
         {
-            // Increment number of recovered individuals
+            // Increment number of infectious individuals
             uint32_t queue_index = atomicAdd((int*)inf_queue_count, 1);
             inf_q_out[queue_index] = source_individual;
             curandState* prngState = prngStates + source_individual;
