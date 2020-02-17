@@ -41,7 +41,7 @@ Lather, rinse, repeat.
 void ProcessCommandLine(int argc, const char* argv[], Configuration& config);
 
 void AllocateState(SimulationState& state, Configuration& config);
-void InitializeState(SimulationState& state, Configuration& config);
+void InitializeState(SimulationState& state, Configuration& config, std::mt19937_64& generator);
 void SaveStateToFile(SimulationState& state, Configuration& config);
 void WriteTransmissionEventsToFile( SimulationState& state, Configuration& config );
 
@@ -56,8 +56,10 @@ int main(int argc, const char* argv[])
 
     ProcessCommandLine(argc, argv, config);
 
+    // prng_seed is also used on the GPU, lets flip the bits for the CPU seed.
+    std::mt19937_64 generator(config.prng_seed ^ 0xFFFFFFFF);
     AllocateState(state, config);
-    InitializeState(state, config);
+    InitializeState(state, config, generator);
     uint32_t vaccination = 0;
     uint32_t vac_start = config.simulation_steps;
     if(config.vac_num>vaccination)
@@ -84,6 +86,9 @@ int main(int argc, const char* argv[])
     TIMER_TYPE* current_timers_exp;
 
     auto start = clock();
+    uint32_t extinction_duration = 0;
+    using param_t = std::poisson_distribution<int32_t>::param_type;
+    std::poisson_distribution<int32_t> import_distribution(config.import_mag);
     for (uint32_t step = 0; step < config.simulation_steps; ++step)
     {
         state.counters->infected_previously = state.counters->infected_currently;
@@ -100,9 +105,11 @@ int main(int argc, const char* argv[])
         previous_timers_inf = ((step & 1) ? state.timers_b_inf : state.timers_a_inf);
         current_timers_inf  = ((step & 1) ? state.timers_a_inf : state.timers_b_inf);
 
-        grid.x = (state.counters->infected_previously + state.counters->exposed_previously + block.x - 1) / block.x;
-        if ( grid.x > 0 )
+	// with potential concurrent kernels I may need to change this?
+        if ( (state.counters->infected_previously + state.counters->exposed_previously) > 0 )
         {
+	    // have those in the exposed compartment age a day
+            grid.x = max((state.counters->exposed_previously + block.x - 1) / block.x, 1);
 	    flu_exposed<<<grid, block>>>(
                 step,
                 config.infectious_duration, config.infectious_duration_std,
@@ -114,6 +121,8 @@ int main(int argc, const char* argv[])
                 state.prngStates
             );
 
+	    // have the infectious attempt to transmit
+            grid.x = max((state.counters->infected_previously + block.x - 1) / block.x, 1);
             flu_kernel<<<grid, block>>>(
                 step,
                 state.population_size, state.max_connections,
@@ -126,8 +135,23 @@ int main(int argc, const char* argv[])
                 &state.counters->transmissions, state.tx_events,
                 state.prngStates
             );
+
+	    import_distribution.param(param_t{config.import_mag*exp(config.import_rate*step)});
+	    state.counters->importations = import_distribution(generator);
+            grid.x = (state.population_size + block.x - 1) / block.x;
+	    flu_importation<<<grid, block>>>(
+		step, state.population_size, &state.counters->importations,
+		config.import_duration, config.import_duration_std,
+		state.status_v,
+                currently_exposed, current_timers_exp, &state.counters->exposed_currently,
+                &state.counters->transmissions, state.tx_events,
+		state.prngStates
+	    );
+
             CheckReturn(cudaDeviceSynchronize());
             CheckReturn(cudaGetLastError());
+
+	    extinction_duration = 0;
 
 	    if (vac_start == step)
 	    {
@@ -156,8 +180,12 @@ int main(int argc, const char* argv[])
         }
         else
         {
-            std::cout << "No remaining exposed or infected at time step " << step << '.' << std::endl;
-            break;
+	    extinction_duration++;
+	    if(extinction_duration > config.reseed_time)
+	    {
+                std::cout << "No remaining exposed or infected for " << extinction_duration << " days at time step " << step << '.' << std::endl;
+                break;
+	    }
         }
     }
     auto end = clock();
@@ -181,12 +209,12 @@ void ShowHelp(const char* name)
     std::cout << "\t--exposures:#        - number of initial exposed [" << DEFAULT_EXPS << ']' << std::endl;
     std::cout << "\t--infections:#       - number of initial infections [" << DEFAULT_INFS << ']' << std::endl;
     std::cout << "\t--time:#             - number of time steps [" << DEFAULT_STEPS << ']' << std::endl;
-    std::cout << "\t--durationE:#        - mean exposure duration (days) [" << DEFAULT_EXPOSED_DURATION_MEAN << ']' << std::endl;
-    std::cout << "\t--stddevE:#          - exposure duration std dev (days) [" << DEFAULT_EXPOSED_DURATION_STD << ']' << std::endl;
-    std::cout << "\t--durationI:#        - mean infectious duration (days) [" << DEFAULT_INFECTIOUS_DURATION_MEAN << ']' << std::endl;
-    std::cout << "\t--stddevI:#          - infectious duration std dev (days) [" << DEFAULT_INFECTIOUS_DURATION_STD << ']' << std::endl;
-    std::cout << "\t--r0:#               - mean r0 [" << DEFAULT_R0 << ']' << std::endl;
-    std::cout << "\t--stddevr0:#         - r0 std dev [" << DEFAULT_R0 << ']' << std::endl;
+    std::cout << "\t--durationE:#        - mean exposure duration (days) [" << exp(DEFAULT_EXPOSED_DURATION_MEAN) << ']' << std::endl;
+    std::cout << "\t--stddevE:#          - exposure duration std dev (days) [" << exp(DEFAULT_EXPOSED_DURATION_STD) << ']' << std::endl;
+    std::cout << "\t--durationI:#        - mean infectious duration (days) [" << exp(DEFAULT_INFECTIOUS_DURATION_MEAN) << ']' << std::endl;
+    std::cout << "\t--stddevI:#          - infectious duration std dev (days) [" << exp(DEFAULT_INFECTIOUS_DURATION_STD) << ']' << std::endl;
+    std::cout << "\t--r0:#               - mean r0 [" << exp(DEFAULT_R0) << ']' << std::endl;
+    std::cout << "\t--stddevr0:#         - r0 std dev [" << exp(DEFAULT_R0_STD) << ']' << std::endl;
     std::cout << "\t--seed:#             - random number seed [" << DEFAULT_SEED << ']' << std::endl;
     std::cout << "\t--input:filename     - name of file with network data [ none ]" << std::endl;
     std::cout << "\t--output:filename    - name of file for transmission data [ '" << DEFAULT_OUTPUT << "' ]" << std::endl;
@@ -194,9 +222,14 @@ void ShowHelp(const char* name)
     std::cout << "\t--quiet              - do not display state during execution" << std::endl;
     std::cout << "\t--debug              - display debugging information" << std::endl;
     std::cout << "\t--vaccinations:#     - number of vaccination events [" << DEFAULT_VACCINATIONS << "]" << std::endl;
-    std::cout << "\t--vacTimes:#,#       - time points to apply vaccination" << std::endl;
-    std::cout << "\t--vacEffect:#,#      - effectiveness of each intervention" << std::endl;
-    std::cout << "\t--vacCoverage:#,#    - coverage of each intervention" << std::endl;
+    std::cout << "\t--vacTimes:#,#       - time points to apply vaccination [none]" << std::endl;
+    std::cout << "\t--vacEffect:#,#      - effectiveness of each intervention [none]" << std::endl;
+    std::cout << "\t--vacCoverage:#,#    - coverage of each intervention [none]" << std::endl;
+    std::cout << "\t--importMag:#        - magitude of the importations [" << DEFAULT_IMPORTATION_MAG << "]" << std::endl;
+    std::cout << "\t--importDoubleTime:# - doubling time of the importations (days) [" << DEFAULT_IMPORTATION_DOUBLING << "]" << std::endl;
+    std::cout << "\t--durationImport:#   - mean exposure time (left) for imported cases (days) [" << DEFAULT_IMPORTATION_DURATION_MEAN << "]" << std::endl;
+    std::cout << "\t--stddevImport:#     - exposed time std dev of the imported cases (days) [" << DEFAULT_IMPORTATION_DURATION_STD << "]" << std::endl;
+    std::cout << "\t--reseedTime:#       - maximum number of days without infection before ending sim (days) [" << DEFAULT_RESEED_TIME << "]" << std::endl;
     std::cout << std::endl;
     exit(-1);
 }
@@ -205,23 +238,23 @@ void ValidateArguments(Configuration& config)
 {
     bool okay = true;
 
-    if ( config.population_size == 0 )            { std::cerr << "population size must be > 0"         << std::endl; okay = false; }
-    if ( config.max_connections == 0 )            { std::cerr << "connections must be > 0"             << std::endl; okay = false; }
-    //if ( config.initial_exposures < 0 )           { std::cerr << "initial exposed must be >= 0"        << std::endl; okay = false; }
-    //if ( config.initial_infections < 0 )          { std::cerr << "initial infections must be >= 0"     << std::endl; okay = false; }
-    if ( config.simulation_steps == 0 )           { std::cerr << "number of time steps must be > 0"    << std::endl; okay = false; }
-    if ( config.exposed_duration <= 0.0f )        { std::cerr << "exposed duration must be > 0"        << std::endl; okay = false; }
-    if ( config.exposed_duration_std <= 0.0f )    { std::cerr << "exposed duration std must be > 0"    << std::endl; okay = false; }
-    if ( config.infectious_duration <= 0.0f )     { std::cerr << "infectious duration must be > 0"     << std::endl; okay = false; }
-    if ( config.infectious_duration_std <= 0.0f ) { std::cerr << "infectious duration std must be > 0" << std::endl; okay = false; }
-    if ( config.r0 <= 0.0f )                      { std::cerr << "r0 must be > 0"                      << std::endl; okay = false; }
-    if ( config.r0_std < 0.0f )                   { std::cerr << "r0 std must be >= 0"                 << std::endl; okay = false; }
-    if ( config.vac_num < 0.0f )                  { std::cerr << "number of vaccinations must be >= 0" << std::endl; okay = false; }
-    for(int i=0; i<config.vac_num; i++){
-        if ( config.vac_times[i] < 0.0f ){
-           	std::cerr << "The time of a vaccination must be >= 0"<< std::endl; okay = false;
-       	}
-    }
+    if ( config.population_size == 0 )            { std::cerr << "population size must be > 0"          << std::endl; okay = false; }
+    if ( config.max_connections == 0 )            { std::cerr << "connections must be > 0"              << std::endl; okay = false; }
+    //if ( config.initial_exposures < 0 )           { std::cerr << "initial exposed must be >= 0"         << std::endl; okay = false; }
+    //if ( config.initial_infections < 0 )          { std::cerr << "initial infections must be >= 0"      << std::endl; okay = false; }
+    if ( config.simulation_steps == 0 )           { std::cerr << "number of time steps must be > 0"     << std::endl; okay = false; }
+    if ( config.exposed_duration < 0.0f )         { std::cerr << "exposed duration must be >= 0"        << std::endl; okay = false; }
+    if ( config.exposed_duration_std < 0.0f )     { std::cerr << "exposed duration std must be >= 0"    << std::endl; okay = false; }
+    if ( config.infectious_duration <= 0.0f )     { std::cerr << "infectious duration must be > 0"      << std::endl; okay = false; }
+    if ( config.infectious_duration_std < 0.0f )  { std::cerr << "infectious duration std must be >= 0" << std::endl; okay = false; }
+    if ( config.r0 <= 0.0f )                      { std::cerr << "r0 must be > 0"                       << std::endl; okay = false; }
+    if ( config.r0_std < 0.0f )                   { std::cerr << "r0 std must be >= 0"                  << std::endl; okay = false; }
+    if ( config.vac_num < 0.0f )                  { std::cerr << "number of vaccinations must be >= 0"  << std::endl; okay = false; }
+    //for(int i=0; i<config.vac_num; i++){
+    //    if ( config.vac_times[i] < 0 ){
+    //       	std::cerr << "The time of a vaccination must be >= 0" << std::endl; okay = false;
+    //   	}
+    //}
     for(int i=0; i<config.vac_num; i++){
         if ( config.vac_effectiveness[i] < 0.0f || config.vac_effectiveness[i] > 1.0f){
            	std::cerr << "The effectiveness of a vaccine must be between 0 and 1 (0% and 100%) "<< std::endl; okay = false;
@@ -232,6 +265,11 @@ void ValidateArguments(Configuration& config)
            	std::cerr << "The coverage of a vaccine must be between 0 and 1 (0% and 100%) "<< std::endl; okay = false;
        	}
     }
+    if ( config.import_mag < 0.0f )               { std::cerr << "magitude of importations must be >= 0"      << std::endl; okay = false; }
+    if ( config.import_rate < 0.0f )              { std::cerr << "doubling time of importations must be >= 0" << std::endl; okay = false; }
+    if ( config.import_duration < 0.0f )          { std::cerr << "imported exposed duration must be >= 0"     << std::endl; okay = false; }
+    if ( config.import_duration_std < 0.0f )      { std::cerr << "imported exposed duration std must be >= 0" << std::endl; okay = false; }
+    //if ( config.reseed_time < 0 )                 { std::cerr << "reseeding time must be >= 0"                << std::endl; okay = false; }
 
     if ( !okay ) { exit(-1); }
 
@@ -257,24 +295,24 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
             const char* value = arg + len + 1;
 
             if ( strncmp(arg, "help", len) == 0 ) { ShowHelp(argv[0]); }
-            else if ( strncmp(arg, "population",     len) == 0 ) { config.population_size         = atoi(value); }
-            else if ( strncmp(arg, "connections",    len) == 0 ) { config.max_connections         = atoi(value); }
-            else if ( strncmp(arg, "exposures",      len) == 0 ) { config.initial_exposures       = atoi(value); }
-            else if ( strncmp(arg, "infections",     len) == 0 ) { config.initial_infections      = atoi(value); }
-            else if ( strncmp(arg, "time",           len) == 0 ) { config.simulation_steps        = atoi(value); }
-            else if ( strncmp(arg, "durationE",      len) == 0 ) { config.exposed_duration        = log(atof(value)); }  // float
-            else if ( strncmp(arg, "stddevE",        len) == 0 ) { config.exposed_duration_std    = log(atof(value)); }  // float
-            else if ( strncmp(arg, "durationI",      len) == 0 ) { config.infectious_duration     = log(atof(value)); }  // float
-            else if ( strncmp(arg, "stddevI",        len) == 0 ) { config.infectious_duration_std = log(atof(value)); }  // float
-            else if ( strncmp(arg, "r0",             len) == 0 ) { config.r0                      = log(atof(value)); }  // float
-            else if ( strncmp(arg, "stddevr0",       len) == 0 ) { config.r0_std                  = log(atof(value)); }  // float
-            else if ( strncmp(arg, "seed",           len) == 0 ) { config.prng_seed               = atoi(value); }
-            else if ( strncmp(arg, "quiet",          len) == 0 ) { config.quiet = true; }
-            else if ( strncmp(arg, "debug",          len) == 0 ) { config.debug = true; }
-            else if ( strncmp(arg, "input",          len) == 0 ) { config.input_filename   = std::string(value); }
-            else if ( strncmp(arg, "output",         len) == 0 ) { config.output_filename  = std::string(value); }
-            else if ( strncmp(arg, "network",        len) == 0 ) { config.network_filename = std::string(value); }
-            else if ( strncmp(arg, "vaccinations",   len) == 0 )
+            else if ( strncmp(arg, "population",       len) == 0 ) { config.population_size         = atoi(value); }
+            else if ( strncmp(arg, "connections",      len) == 0 ) { config.max_connections         = atoi(value); }
+            else if ( strncmp(arg, "exposures",        len) == 0 ) { config.initial_exposures       = atoi(value); }
+            else if ( strncmp(arg, "infections",       len) == 0 ) { config.initial_infections      = atoi(value); }
+            else if ( strncmp(arg, "time",             len) == 0 ) { config.simulation_steps        = atoi(value); }
+            else if ( strncmp(arg, "durationE",        len) == 0 ) { config.exposed_duration        = log(atof(value)); }  // float
+            else if ( strncmp(arg, "stddevE",          len) == 0 ) { config.exposed_duration_std    = log(atof(value)); }  // float
+            else if ( strncmp(arg, "durationI",        len) == 0 ) { config.infectious_duration     = log(atof(value)); }  // float
+            else if ( strncmp(arg, "stddevI",          len) == 0 ) { config.infectious_duration_std = log(atof(value)); }  // float
+            else if ( strncmp(arg, "r0",               len) == 0 ) { config.r0                      = log(atof(value)); }  // float
+            else if ( strncmp(arg, "stddevr0",         len) == 0 ) { config.r0_std                  = log(atof(value)); }  // float
+            else if ( strncmp(arg, "seed",             len) == 0 ) { config.prng_seed               = atoi(value); }
+            else if ( strncmp(arg, "quiet",            len) == 0 ) { config.quiet                   = true; }
+            else if ( strncmp(arg, "debug",            len) == 0 ) { config.debug                   = true; }
+            else if ( strncmp(arg, "input",            len) == 0 ) { config.input_filename          = std::string(value); }
+            else if ( strncmp(arg, "output",           len) == 0 ) { config.output_filename         = std::string(value); }
+            else if ( strncmp(arg, "network",          len) == 0 ) { config.network_filename        = std::string(value); }
+            else if ( strncmp(arg, "vaccinations",     len) == 0 )
 	    {
 	        config.vac_num = atoi(value);
 		config.vac_times = (uint32_t*)malloc(config.vac_num*sizeof(uint32_t));
@@ -282,9 +320,14 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
 		config.vac_coverage = (float*)malloc(config.vac_num*sizeof(float));
 		vac_param_num++;
 	    }
-            else if ( strncmp(arg, "vacTimes", len) == 0 ) { ReadArray(config.vac_num, config.vac_times, value); vac_param_num++;}
-            else if ( strncmp(arg, "vacEffect",  len) == 0 ) { ReadArray(config.vac_num, config.vac_effectiveness, value); vac_param_num++;}
-            else if ( strncmp(arg, "vacCoverage",       len) == 0 ) { ReadArray(config.vac_num, config.vac_coverage, value); vac_param_num++;}
+            else if ( strncmp(arg, "vacTimes",         len) == 0 ) { ReadArray(config.vac_num, config.vac_times, value); vac_param_num++;}
+            else if ( strncmp(arg, "vacEffect",        len) == 0 ) { ReadArray(config.vac_num, config.vac_effectiveness, value); vac_param_num++;}
+            else if ( strncmp(arg, "vacCoverage",      len) == 0 ) { ReadArray(config.vac_num, config.vac_coverage, value); vac_param_num++;}
+            else if ( strncmp(arg, "importMag",        len) == 0 ) { config.import_mag              = atof(value); }
+            else if ( strncmp(arg, "importDoubleTime", len) == 0 ) { config.import_rate             = log(2)/atof(value); }
+            else if ( strncmp(arg, "durationImport",   len) == 0 ) { config.import_duration         = log(atof(value)); }  // float
+            else if ( strncmp(arg, "stddevImport",     len) == 0 ) { config.import_duration_std     = log(atof(value)); }  // float
+            else if ( strncmp(arg, "reseedTime",       len) == 0 ) { config.reseed_time             = atoi(value); }
             else
             {
                 std::cerr << "Unknown command line argument '" << argv[index] << "'." << std::endl;
@@ -305,27 +348,32 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
 
     ValidateArguments(config);
 
-    std::cout << "Population:                       " << config.population_size              << std::endl;
-    std::cout << "Max connections: ................ " << config.max_connections              << std::endl;
-    std::cout << "Initial exposures:                " << config.initial_exposures            << std::endl;
-    std::cout << "Initial infections:               " << config.initial_infections           << std::endl;
-    std::cout << "Simulation duration (time steps): " << config.simulation_steps             << std::endl;
-    std::cout << "Mean exposed duration:            " << exp(config.exposed_duration)        << std::endl;
-    std::cout << "Exposed duration std dev:         " << exp(config.exposed_duration_std)    << std::endl;
-    std::cout << "Mean infectious duration:         " << exp(config.infectious_duration)     << std::endl;
-    std::cout << "Infectious duration std dev:      " << exp(config.infectious_duration_std) << std::endl;
-    std::cout << "R0:                               " << exp(config.r0)                      << std::endl;
-    std::cout << "R0 std dev:                       " << exp(config.r0_std)                  << std::endl;
-    std::cout << "PRNG seed:                        " << config.prng_seed                    << std::endl;
-    std::cout << "Input (network) filename:         " << config.input_filename.c_str()       << std::endl;
-    std::cout << "Output (transmissions) filename:  " << config.output_filename.c_str()      << std::endl;
-    std::cout << "Network (save) filename:          " << config.network_filename.c_str()     << std::endl;
-    std::cout << "Quiet mode:                       " << (config.quiet ? "on" : "off")       << std::endl;
-    std::cout << "Debugging mode:                   " << (config.debug ? "on" : "off")       << std::endl;
-    std::cout << "Number of vaccination events:     " << config.vac_num                      << std::endl;
-    std::cout << "Times of vaccination events:      "; PrintArray(config.vac_times, config.vac_num);
-    std::cout << "Effectiveness of vaccine:         "; PrintArray(config.vac_effectiveness, config.vac_num);
-    std::cout << "Vacination coverage:              "; PrintArray(config.vac_coverage, config.vac_num);
+    std::cout << "Population:                        " << config.population_size              << std::endl;
+    std::cout << "Max connections: ................  " << config.max_connections              << std::endl;
+    std::cout << "Initial exposures:                 " << config.initial_exposures            << std::endl;
+    std::cout << "Initial infections:                " << config.initial_infections           << std::endl;
+    std::cout << "Simulation duration (time steps):  " << config.simulation_steps             << std::endl;
+    std::cout << "Mean exposed duration:             " << exp(config.exposed_duration)        << std::endl;
+    std::cout << "Exposed duration std dev:          " << exp(config.exposed_duration_std)    << std::endl;
+    std::cout << "Mean infectious duration:          " << exp(config.infectious_duration)     << std::endl;
+    std::cout << "Infectious duration std dev:       " << exp(config.infectious_duration_std) << std::endl;
+    std::cout << "R0:                                " << exp(config.r0)                      << std::endl;
+    std::cout << "R0 std dev:                        " << exp(config.r0_std)                  << std::endl;
+    std::cout << "PRNG seed:                         " << config.prng_seed                    << std::endl;
+    std::cout << "Input (network) filename:          " << config.input_filename.c_str()       << std::endl;
+    std::cout << "Output (transmissions) filename:   " << config.output_filename.c_str()      << std::endl;
+    std::cout << "Network (save) filename:           " << config.network_filename.c_str()     << std::endl;
+    std::cout << "Quiet mode:                        " << (config.quiet ? "on" : "off")       << std::endl;
+    std::cout << "Debugging mode:                    " << (config.debug ? "on" : "off")       << std::endl;
+    std::cout << "Number of vaccination events:      " << config.vac_num                      << std::endl;
+    std::cout << "Times of vaccination events:       "; PrintArray(config.vac_times, config.vac_num);
+    std::cout << "Effectiveness of vaccine:          "; PrintArray(config.vac_effectiveness, config.vac_num);
+    std::cout << "Vacination coverage:               "; PrintArray(config.vac_coverage, config.vac_num);
+    std::cout << "Magitude of importations:          " << config.import_mag                   << std::endl;
+    std::cout << "Doubling time for importatons:     " << log(2)/config.import_rate           << std::endl;
+    std::cout << "Mean imported exposed duration:    " << exp(config.import_duration)         << std::endl;
+    std::cout << "Imported exposed duration std dev: " << exp(config.import_duration_std)     << std::endl;
+    std::cout << "Days without infection before end: " << config.reseed_time                  << std::endl;
 }
 
 void PrintArray(float* array, int n)
@@ -441,10 +489,10 @@ void AllocateState(SimulationState& state, Configuration& config)
 
 void InitializePrngStates(SimulationState& state, Configuration& config);
 void InitializeNetwork(SimulationState& state, Configuration& config);
-void SeedInfections(SimulationState& state, Configuration& config);
+void SeedInfections(SimulationState& state, Configuration& config, std::mt19937_64& generator);
 void ZeroVectors(SimulationState& state, uint32_t simulation_steps);
 
-void InitializeState(SimulationState& state, Configuration& config)
+void InitializeState(SimulationState& state, Configuration& config, std::mt19937_64& generator)
 {
     state.population_size = config.population_size;
     state.max_connections = config.max_connections;
@@ -454,11 +502,12 @@ void InitializeState(SimulationState& state, Configuration& config)
     state.counters->infected_currently  = 0;
     state.counters->recovered           = 0;
     state.counters->transmissions       = 0;
+    state.counters->importations        = 0;
 
     InitializePrngStates(state, config);
     InitializeNetwork(state, config);
     ZeroVectors(state, config.simulation_steps);
-    SeedInfections(state, config);
+    SeedInfections(state, config, generator);
 }
 
 void InitializePrngStates(SimulationState& state, Configuration& config)
@@ -561,13 +610,11 @@ void InitializeNetworkOnGpu(SimulationState& state, Configuration& config)
 }
 
 // TODO - consider doing this on the GPU
-void SeedInfections(SimulationState& state, Configuration& config)
+void SeedInfections(SimulationState& state, Configuration& config, std::mt19937_64& generator)
 {
     // If we are using saved state, infections may already be present.
     if ( config.initial_infections == 0 && config.initial_exposures == 0) return;
 
-    // prng_seed is also used on the GPU, lets flip the bits for the CPU seed.
-    std::mt19937_64 generator(config.prng_seed ^ 0xFFFFFFFF);
     std::uniform_int_distribution<IND_TYPE> uniform_int(0, config.population_size - 1);
     std::lognormal_distribution<double> duration(config.exposed_duration, config.exposed_duration_std);
 

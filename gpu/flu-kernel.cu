@@ -39,7 +39,7 @@ __global__ void flu_kernel(
                 if (draw < (susceptibility[neighbor_index]*beta_modifier))
                 {
                     INF_TYPE infected = atomicExch(&status_v[target_individual], INF_TYPE(STATUS_EXPOSED));
-                    if ( !infected )
+                    if ( infected == STATUS_SUSCEPTIBLE)
                     {
                         uint32_t queue_index = atomicAdd((int*)exp_queue_count, 1);
 
@@ -102,6 +102,42 @@ __global__ void flu_exposed(
             inf_timers_out[queue_index] = TIMER_TYPE(max(duration, 1)); // At least one day.
             status_v[source_individual] = STATUS_INFECTIOUS;
 	    transmission_events[source_individual].time_infectious = simulation_step;
+        }
+    }
+}
+
+// for now all importations are exposures and the time remaining has not been shorten
+__global__ void flu_importation(
+    uint32_t simulation_step, uint32_t population_size,                         // RO
+    int32_t* importations,                                                      // R/W
+    float mean_duration_inc, float stddev_duration_inc,                         // RO
+    INF_TYPE* status_v,                                                         // R/W
+    IND_TYPE* exp_q_out, TIMER_TYPE* exp_timers_out, uint32_t* exp_queue_count, // WO
+    uint32_t* transmission_count,                                               // RW
+    TxEvent* transmission_events,                                               // WO
+    curandState* prngStates)                                                    // R/W
+{
+
+    uint32_t individual_index = (blockDim.x * blockIdx.x) + threadIdx.x;
+
+    if(individual_index < population_size)
+    {
+        if(status_v[individual_index] == STATUS_SUSCEPTIBLE)
+        {
+            int32_t importsLeft = atomicAdd((int*)importations, -1);
+            if(importsLeft > 0)
+            {
+                uint32_t queue_index = atomicAdd((int*)exp_queue_count, 1);
+
+                curandState* prngState = prngStates + individual_index;
+                exp_q_out[queue_index] = individual_index;
+                int32_t duration = __float2int_rn(curand_log_normal(prngState, mean_duration_inc, stddev_duration_inc));
+                exp_timers_out[queue_index] = TIMER_TYPE(max(duration, 1)); // At least one day.
+
+                uint32_t event_index = atomicAdd((int*)transmission_count, 1);
+		status_v[individual_index] = STATUS_EXPOSED;
+                transmission_events[individual_index].time_exposed = simulation_step;
+            }
         }
     }
 }
