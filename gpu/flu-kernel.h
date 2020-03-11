@@ -9,10 +9,10 @@
 __global__ void initialize_prng(curandState* prngState, uint32_t population, uint32_t seed);
 
 __global__ void flu_vaccinate(CON_TYPE* beta_adjust, float effectiveness, float coverage,
-		uint32_t popualtion, curandState* prngStates);
+                                uint32_t popualtion, curandState* prngStates);
 
 __global__ void initialize_vectors(INF_TYPE* status_v, CON_TYPE* beta_adjust, TxEvent* transmission_events,
-	       	uint32_t population_count);
+                                    uint32_t population_count);
 
 __global__ void setup_network(
     IND_TYPE* network, CON_TYPE* connections,
@@ -23,7 +23,7 @@ __global__ void setup_network(
 __global__ void flu_importation(
     uint32_t simulation_step,       // RO
     uint32_t population_size,       // RO
-    int32_t* importations,          // R/W
+    uint32_t* importations,         // R/W
     float mean_duration_inc,        // RO
     float stddev_duration_inc,      // RO
     INF_TYPE* status_v,             // R/W

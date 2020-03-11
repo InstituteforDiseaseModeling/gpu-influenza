@@ -27,7 +27,6 @@ __global__ void flu_kernel(
         IND_TYPE source_individual = inf_q_in[infected_index];
         IND_TYPE* neighbors = network_m + (connection_count * source_individual);
         CON_TYPE* susceptibility = connect_m + (connection_count * source_individual);
-	CON_TYPE beta_modifier = beta_adjust[source_individual];
         for (uint32_t neighbor_index = 0; neighbor_index < connection_count; ++neighbor_index)
         {
             IND_TYPE target_individual = neighbors[neighbor_index];
@@ -36,10 +35,11 @@ __global__ void flu_kernel(
             {
                 curandState* prngState = prngStates + source_individual;
                 CON_TYPE draw = CON_TYPE(curand_uniform(prngState));
+                CON_TYPE beta_modifier = beta_adjust[target_individual];
                 if (draw < (susceptibility[neighbor_index]*beta_modifier))
                 {
                     INF_TYPE infected = atomicExch(&status_v[target_individual], INF_TYPE(STATUS_EXPOSED));
-                    if ( infected == STATUS_SUSCEPTIBLE)
+                    if (infected == STATUS_SUSCEPTIBLE)
                     {
                         uint32_t queue_index = atomicAdd((int*)exp_queue_count, 1);
 
@@ -66,7 +66,7 @@ __global__ void flu_kernel(
         {
             // Increment number of recovered individuals
             status_v[source_individual] = STATUS_RECOVERED;
-	    transmission_events[source_individual].time_recovered = simulation_step;
+            transmission_events[source_individual].time_recovered = simulation_step;
         }
     }
 }
@@ -84,7 +84,7 @@ __global__ void flu_exposed(
     uint32_t exposed_index = (blockDim.x * blockIdx.x) + threadIdx.x;
     if(exposed_index < exp_queue_size)
     {
-	IND_TYPE source_individual = exp_q_in[exposed_index];
+        IND_TYPE source_individual = exp_q_in[exposed_index];
         TIMER_TYPE remaining = exp_timers_in[exposed_index] - 1;
         if (remaining > 0)
         {
@@ -101,7 +101,7 @@ __global__ void flu_exposed(
             int32_t duration = __float2int_rn(curand_log_normal(prngState, mean_duration_inf, stddev_duration_inf));
             inf_timers_out[queue_index] = TIMER_TYPE(max(duration, 1)); // At least one day.
             status_v[source_individual] = STATUS_INFECTIOUS;
-	    transmission_events[source_individual].time_infectious = simulation_step;
+            transmission_events[source_individual].time_infectious = simulation_step;
         }
     }
 }
@@ -109,7 +109,7 @@ __global__ void flu_exposed(
 // for now all importations are exposures and the time remaining has not been shorten
 __global__ void flu_importation(
     uint32_t simulation_step, uint32_t population_size,                         // RO
-    int32_t* importations,                                                      // R/W
+    uint32_t* importations,                                                      // R/W
     float mean_duration_inc, float stddev_duration_inc,                         // RO
     INF_TYPE* status_v,                                                         // R/W
     IND_TYPE* exp_q_out, TIMER_TYPE* exp_timers_out, uint32_t* exp_queue_count, // WO
@@ -117,7 +117,6 @@ __global__ void flu_importation(
     TxEvent* transmission_events,                                               // WO
     curandState* prngStates)                                                    // R/W
 {
-
     uint32_t individual_index = (blockDim.x * blockIdx.x) + threadIdx.x;
 
     if(individual_index < population_size)
@@ -135,7 +134,7 @@ __global__ void flu_importation(
                 exp_timers_out[queue_index] = TIMER_TYPE(max(duration, 1)); // At least one day.
 
                 uint32_t event_index = atomicAdd((int*)transmission_count, 1);
-		status_v[individual_index] = STATUS_EXPOSED;
+                status_v[individual_index] = STATUS_EXPOSED;
                 transmission_events[individual_index].time_exposed = simulation_step;
             }
         }
@@ -143,8 +142,8 @@ __global__ void flu_importation(
 }
 
 __global__ void flu_vaccinate(
-		CON_TYPE* beta_adjust, float effectiveness, float coverage,
-	       	uint32_t population, curandState* prngStates)
+    CON_TYPE* beta_adjust, float effectiveness, float coverage,
+    uint32_t population, curandState* prngStates)
 {
     uint32_t individual = (blockDim.x * blockIdx.x) + threadIdx.x;
 
@@ -153,9 +152,9 @@ __global__ void flu_vaccinate(
         curandState* prngState = prngStates + individual;
         float draw = curand_uniform(prngState);
         if (draw < coverage)
-	{
+        {
             beta_adjust[individual] = 1.0 - effectiveness;
-	}
+        }
     }
 }
 
