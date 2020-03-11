@@ -47,7 +47,7 @@ void WriteTransmissionEventsToFile( SimulationState& state, Configuration& confi
 
 void DisplayNetwork( SimulationState& state );
 void DisplayInfected( IND_TYPE* queue_exp, TIMER_TYPE* timers_exp, uint32_t count_exp,
-	       IND_TYPE* queue_inf, TIMER_TYPE* teimers_inf, uint32_t count_inf	);
+                      IND_TYPE* queue_inf, TIMER_TYPE* timers_inf, uint32_t count_inf );
 
 int main(int argc, const char* argv[])
 {
@@ -61,15 +61,11 @@ int main(int argc, const char* argv[])
     AllocateState(state, config);
     InitializeState(state, config, generator);
     uint32_t vaccination = 0;
-    uint32_t vac_start = config.simulation_steps;
-    if(config.vac_num>vaccination)
-    {
-        vac_start = config.vac_times[vaccination];
-    }
+    uint32_t vac_start = (config.vac_num > 0) ? config.vac_times[0] : config.simulation_steps;
 
     DisplayNetwork( state );
     DisplayInfected( state.queue_a_exp, state.timers_a_exp, state.counters->exposed_currently,
-		  state.queue_a_inf, state.timers_a_inf, state.counters->infected_currently );
+                     state.queue_a_inf, state.timers_a_inf, state.counters->infected_currently );
 
     uint32_t blockX = BLOCK_SIZE;
     dim3 block(blockX, 1, 1);
@@ -105,23 +101,23 @@ int main(int argc, const char* argv[])
         previous_timers_inf = ((step & 1) ? state.timers_b_inf : state.timers_a_inf);
         current_timers_inf  = ((step & 1) ? state.timers_a_inf : state.timers_b_inf);
 
-	// with potential concurrent kernels I may need to change this?
+        // with potential concurrent kernels I may need to change this?
         if ( (state.counters->infected_previously + state.counters->exposed_previously) > 0 )
         {
-	    // have those in the exposed compartment age a day
+            // have those in the exposed compartment age a day
             grid.x = max((state.counters->exposed_previously + block.x - 1) / block.x, 1);
-	    flu_exposed<<<grid, block>>>(
+            flu_exposed<<<grid, block>>>(
                 step,
                 config.infectious_duration, config.infectious_duration_std,
                 previously_exposed, previous_timers_exp, state.counters->exposed_previously,
-                state.status_v, 
+                state.status_v,
                 currently_exposed, current_timers_exp, &state.counters->exposed_currently,
                 currently_infected, current_timers_inf, &state.counters->infected_currently,
                 state.tx_events,
                 state.prngStates
             );
 
-	    // have the infectious attempt to transmit
+            // have the infectious attempt to transmit
             grid.x = max((state.counters->infected_previously + block.x - 1) / block.x, 1);
             flu_kernel<<<grid, block>>>(
                 step,
@@ -129,42 +125,41 @@ int main(int argc, const char* argv[])
                 config.exposed_duration, config.exposed_duration_std,
                 state.network_m, state.connect_m, state.beta_factor,
                 previously_infected, previous_timers_inf, state.counters->infected_previously,
-                state.status_v, 
+                state.status_v,
                 currently_exposed, current_timers_exp, &state.counters->exposed_currently,
                 currently_infected, current_timers_inf, &state.counters->infected_currently,
                 &state.counters->transmissions, state.tx_events,
                 state.prngStates
             );
 
-	    import_distribution.param(param_t{config.import_mag*exp(config.import_rate*step)});
-	    state.counters->importations = import_distribution(generator);
+            import_distribution.param(param_t{config.import_mag*exp(config.import_rate*step)});
+            state.counters->importations = import_distribution(generator);
             grid.x = (state.population_size + block.x - 1) / block.x;
-	    flu_importation<<<grid, block>>>(
-		step, state.population_size, &state.counters->importations,
-		config.import_duration, config.import_duration_std,
-		state.status_v,
+            flu_importation<<<grid, block>>>(
+                step, state.population_size, &state.counters->importations,
+                config.import_duration, config.import_duration_std,
+                state.status_v,
                 currently_exposed, current_timers_exp, &state.counters->exposed_currently,
                 &state.counters->transmissions, state.tx_events,
-		state.prngStates
-	    );
+                state.prngStates
+                );
 
             CheckReturn(cudaDeviceSynchronize());
             CheckReturn(cudaGetLastError());
 
-	    extinction_duration = 0;
+            extinction_duration = 0;
 
-	    if (vac_start == step)
-	    {
+            if (vac_start == step)
+            {
                 flu_vaccinate<<<grid, block>>>(state.beta_factor, config.vac_effectiveness[vaccination],
-				config.vac_coverage[vaccination],
-				state.population_size, state.prngStates);
-		vaccination++;
-                if(config.vac_num>vaccination)
+                config.vac_coverage[vaccination],
+                state.population_size, state.prngStates);
+                ++vaccination;
+                if (config.vac_num > vaccination)
                 {
                     vac_start = config.vac_times[vaccination];
                 }
-
-	    }
+            }
 
             if ( config.debug )
             {
@@ -175,17 +170,17 @@ int main(int argc, const char* argv[])
             if ( !config.quiet )
             {
                 DisplayInfected( currently_exposed, current_timers_exp, state.counters->exposed_currently,
-	           currently_infected, current_timers_inf, state.counters->infected_currently );
+                currently_infected, current_timers_inf, state.counters->infected_currently );
             }
         }
         else
         {
-	    extinction_duration++;
-	    if(extinction_duration > config.reseed_time)
-	    {
+            ++extinction_duration;
+            if(extinction_duration > config.reseed_time)
+            {
                 std::cout << "No remaining exposed or infected for " << extinction_duration << " days at time step " << step << '.' << std::endl;
                 break;
-	    }
+            }
         }
     }
     auto end = clock();
@@ -252,18 +247,18 @@ void ValidateArguments(Configuration& config)
     if ( config.vac_num < 0.0f )                  { std::cerr << "number of vaccinations must be >= 0"  << std::endl; okay = false; }
     //for(int i=0; i<config.vac_num; i++){
     //    if ( config.vac_times[i] < 0 ){
-    //       	std::cerr << "The time of a vaccination must be >= 0" << std::endl; okay = false;
-    //   	}
+    //       std::cerr << "The time of a vaccination must be >= 0" << std::endl; okay = false;
+    //    }
     //}
     for(int i=0; i<config.vac_num; i++){
         if ( config.vac_effectiveness[i] < 0.0f || config.vac_effectiveness[i] > 1.0f){
-           	std::cerr << "The effectiveness of a vaccine must be between 0 and 1 (0% and 100%) "<< std::endl; okay = false;
-       	}
+            std::cerr << "The effectiveness of a vaccine must be between 0 and 1 (0% and 100%) "<< std::endl; okay = false;
+        }
     }
     for(int i=0; i<config.vac_num; i++){
         if ( config.vac_coverage[i] < 0.0f || config.vac_coverage[i] > 1.0f){
-           	std::cerr << "The coverage of a vaccine must be between 0 and 1 (0% and 100%) "<< std::endl; okay = false;
-       	}
+            std::cerr << "The coverage of a vaccine must be between 0 and 1 (0% and 100%) "<< std::endl; okay = false;
+        }
     }
     if ( config.import_mag < 0.0f )               { std::cerr << "magitude of importations must be >= 0"      << std::endl; okay = false; }
     if ( config.import_rate < 0.0f )              { std::cerr << "doubling time of importations must be >= 0" << std::endl; okay = false; }
@@ -313,13 +308,13 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
             else if ( strncmp(arg, "output",           len) == 0 ) { config.output_filename         = std::string(value); }
             else if ( strncmp(arg, "network",          len) == 0 ) { config.network_filename        = std::string(value); }
             else if ( strncmp(arg, "vaccinations",     len) == 0 )
-	    {
-	        config.vac_num = atoi(value);
-		config.vac_times = (uint32_t*)malloc(config.vac_num*sizeof(uint32_t));
-		config.vac_effectiveness = (float*)malloc(config.vac_num*sizeof(float));
-		config.vac_coverage = (float*)malloc(config.vac_num*sizeof(float));
-		vac_param_num++;
-	    }
+            {
+                config.vac_num           = atoi(value);
+                config.vac_times         = (uint32_t*)malloc(config.vac_num*sizeof(uint32_t));
+                config.vac_effectiveness = (float*)malloc(config.vac_num*sizeof(float));
+                config.vac_coverage      = (float*)malloc(config.vac_num*sizeof(float));
+                ++vac_param_num;
+            }
             else if ( strncmp(arg, "vacTimes",         len) == 0 ) { ReadArray(config.vac_num, config.vac_times, value); vac_param_num++;}
             else if ( strncmp(arg, "vacEffect",        len) == 0 ) { ReadArray(config.vac_num, config.vac_effectiveness, value); vac_param_num++;}
             else if ( strncmp(arg, "vacCoverage",      len) == 0 ) { ReadArray(config.vac_num, config.vac_coverage, value); vac_param_num++;}
@@ -340,10 +335,10 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
     }
 
     // check that all or none of the vaccinaton parameters were passed in
-    if(vac_param_num!=0 && vac_param_num!=4)
+    if ((vac_param_num!=0) && (vac_param_num!=4))
     {
         std::cerr << "Received some vaccine parameters but not all the required parameters." << std::endl;
-	exit(-1);
+        exit(-1);
     }
 
     ValidateArguments(config);
@@ -403,19 +398,20 @@ void ReadArray(uint32_t expectedSize, float* outputArray, const char* arg)
     while (pch != NULL)
     {
         outputArray[position] = atof(pch);
-	pch = strtok(NULL, ",");
-	position++;
+        pch = strtok(NULL, ",");
+        position++;
     }
     if (position == 1)
     {
         for(int i = 1; i<expectedSize; i++)
-	{
-	    outputArray[i] = outputArray[0];
-	}
-    } else if (position != expectedSize)
+        {
+            outputArray[i] = outputArray[0];
+        }
+    }
+    else if (position != expectedSize)
     {
-        std::cerr << "Miss-match between number of vaccinations asked for and number of parameters given" << std::endl;
-	exit(-1);
+        std::cerr << "Mismatch between number of vaccinations asked for and number of parameters given" << std::endl;
+        exit(-1);
     }
     free(copy);
 }
@@ -429,19 +425,20 @@ void ReadArray(uint32_t expectedSize, uint32_t* outputArray, const char* arg)
     while (pch != NULL)
     {
         outputArray[position] = atoi(pch);
-	pch = strtok(NULL, ",");
-	position++;
+        pch = strtok(NULL, ",");
+        position++;
     }
     if (position == 1)
     {
         for(int i = 1; i<expectedSize; i++)
-	{
-	    outputArray[i] = outputArray[0];
-	}
-    } else if (position != expectedSize)
+        {
+            outputArray[i] = outputArray[0];
+        }
+    }
+    else if (position != expectedSize)
     {
-        std::cerr << "Miss-match between number of vaccinations asked for and number of parameters given" << std::endl;
-	exit(-1);
+        std::cerr << "Mismatch between number of vaccinations asked for and number of parameters given" << std::endl;
+        exit(-1);
     }
     free(copy);
 }
@@ -452,7 +449,7 @@ void DisplayNetwork( SimulationState& state )
 }
 
 void DisplayInfected( IND_TYPE* exposed_queue, TIMER_TYPE* exposed_timers, uint32_t exposed_count,
-	       IND_TYPE* infected_queue, TIMER_TYPE* infected_timers, uint32_t infected_count	)
+                      IND_TYPE* infected_queue, TIMER_TYPE* infected_timers, uint32_t infected_count)
 {
     std::cout << "Exposed (" << exposed_count << "): ";
     for (uint32_t i = 0; i < exposed_count; ++i)

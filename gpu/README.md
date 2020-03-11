@@ -7,7 +7,7 @@ This branch has an updated verison of the gpu-flu model with an E component and 
 bin/flu:
         --population:#       - population size [32]
         --connections:#      - per agent network degree [4]
-        --exposuers:#        - number of initial exposures [0]
+        --exposures:#        - number of initial exposures [0]
         --infections:#       - number of initial infections [1]
         --time:#             - number of time steps [10]
         --durationE:#        - mean exposed duration (days) [5]
@@ -23,9 +23,9 @@ bin/flu:
         --quiet              - do not display state during execution
         --debug              - display debugging information
         --vaccinations:#     - number of vaccination events (must be passed before other vaccine parameters) [0]
-        --vacTimes:#,#       - times of vaccinaton events (must be a single number or comma seperated list) [none]
-        --vacEffect:#,#      - effectiveness of vaccine (must be a single number or comma seperated list) [none]
-        --vacCoverage:#,#    - coverage of vaccination (must be a single number or comma seperated list) [none]
+        --vacTimes:#,#       - times of vaccinaton events (must be a single number or comma separated list) [none]
+        --vacEffect:#,#      - effectiveness of vaccine (must be a single number or comma separated list) [none]
+        --vacCoverage:#,#    - coverage of vaccination (must be a single number or comma separated list) [none]
         --importMag:#        - magitude of the importations (model assumes exponential growth of the source) [0]
         --importDoubleTime:# - doubling time for the importations (model assumes exponential growth of the source) [7]
         --durationImport:#   - mean exposure time (left) for imported casses (days) [2.5]
@@ -35,7 +35,7 @@ bin/flu:
 Options may be truncated, e.g. ```--pop:1024```, except ```--i``` and ```--in``` will set initial infections rather than set input filename and ```--d``` will set durationE rather than durationI or the debug flag. The truncated form corrisponds to the first match (based on order in the above list), because of this I may rename some of these options to make the truncation more useful.
 Options may use ':' or '=', e.g. ```--pop:1024``` and ```--pop=1024``` are equivalent.
 
-The latent period (exposed period), infectios period, and R0 (really beta, but the input is R0) are all drawn from lognormal distributions. The values to set here are the geometric parameters (median and scatter) not the mean and standard deviation of the logarithm.
+The latent period (exposed period), infectious period, and R0 (really beta, but the input is R0) are all drawn from lognormal distributions. The values to set here are the geometric parameters (median and scatter) not the mean and standard deviation of the logarithm.
 
 ## Data Structures
 

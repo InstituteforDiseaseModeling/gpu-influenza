@@ -21,10 +21,10 @@
 #define DEFAULT_R0                          (0.9162907f) // log(2.5)
 #define DEFAULT_R0_STD                      (0.4054651f) // log(1.5)
 
-#define DEFAULT_VACCINATIONS                (0) 
-#define DEFAULT_VAC_TIMES                   (NULL) 
-#define DEFAULT_VAC_EFFECTIVENESS           (NULL) 
-#define DEFAULT_VAC_COVERAGE                (NULL) 
+#define DEFAULT_VACCINATIONS                (0)
+#define DEFAULT_VAC_TIMES                   (nullptr)
+#define DEFAULT_VAC_EFFECTIVENESS           (nullptr)
+#define DEFAULT_VAC_COVERAGE                (nullptr)
 
 #define DEFAULT_IMPORTATION_MAG             (0.0f)
 #define DEFAULT_IMPORTATION_DOUBLING        (0.0990210f) // log(2)/7
@@ -80,15 +80,15 @@ struct Configuration {
         , input_filename("")
         , output_filename(DEFAULT_OUTPUT)
         , network_filename("")
-	, vac_num(DEFAULT_VACCINATIONS)
-	, vac_times(DEFAULT_VAC_TIMES)
-	, vac_effectiveness(DEFAULT_VAC_EFFECTIVENESS)
-	, vac_coverage(DEFAULT_VAC_COVERAGE)
+        , vac_num(DEFAULT_VACCINATIONS)
+        , vac_times(DEFAULT_VAC_TIMES)
+        , vac_effectiveness(DEFAULT_VAC_EFFECTIVENESS)
+        , vac_coverage(DEFAULT_VAC_COVERAGE)
         , import_mag(DEFAULT_IMPORTATION_MAG)
-	, import_rate(DEFAULT_IMPORTATION_DOUBLING)
+        , import_rate(DEFAULT_IMPORTATION_DOUBLING)
         , import_duration(DEFAULT_IMPORTATION_DURATION_MEAN)
         , import_duration_std(DEFAULT_IMPORTATION_DURATION_STD)
-	, reseed_time(DEFAULT_RESEED_TIME)
+        , reseed_time(DEFAULT_RESEED_TIME)
     {}
 };
 
@@ -99,7 +99,7 @@ struct Counters {
     uint32_t    infected_currently;
     uint32_t    recovered;
     uint32_t    transmissions;
-    int32_t     importations;
+    uint32_t    importations;
 };
 
 struct SimulationState {

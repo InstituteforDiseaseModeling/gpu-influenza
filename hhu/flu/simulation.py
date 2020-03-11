@@ -47,7 +47,7 @@ class Simulation(object):
         #seed random number generator
         if "random_seed" in configs:
             ran.seed(configs["random_seed"])
-			
+
         return
 
     # @profile
