@@ -25,18 +25,24 @@ LD_FLAGS=""
 
 #################################################################################################
 # compile options
-CXX_FLAGS=-I/usr/local/include -I../shared -lineinfo -rdc=true -std=c++11 --maxrregcount=63 --ptxas-options=-v
+BINDIR=./bin
+SRCDIR=./src
+INCLUDEDIR=./include
+
+CXX_FLAGS=-I/usr/local/include -I../shared -I$(INCLUDEDIR) -lineinfo -rdc=true -std=c++11 --maxrregcount=63 --ptxas-options=-v
 #################################################################################################
 
 all: flu debug
 
-flu: *.cu
+flu: $(SRCDIR)/*.cu
+	@mkdir -p $(BINDIR)
 	nvcc \
 		$(GENCODE_FLAGS) \
 		$(CXX_FLAGS) \
 		-o bin/$@ $^
 
-debug: *.cu
+debug: $(SRCDIR)/*.cu
+	@mkdir -p $(BINDIR)
 	nvcc \
 		$(GENCODE_FLAGS) \
 		$(CXX_FLAGS) \
