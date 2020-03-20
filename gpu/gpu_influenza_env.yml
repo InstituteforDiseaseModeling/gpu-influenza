@@ -1,0 +1,28 @@
+name: gpuflu_v1
+channels:
+  - defaults
+
+dependencies:
+  - python=3.7
+  - pip
+
+  # Core scientific python
+  - numpy
+  - scipy
+  - pandas
+  - matplotlib
+  - seaborn
+
+  # Numerical libraries  
+  - blas
+  - mkl
+
+  # Others
+
+  # More dependencies (via pip)
+  - pip:
+    - jupyter
+    - jupyter-core
+    - jupyter-console
+    - jupyter-client
+
