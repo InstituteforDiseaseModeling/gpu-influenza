@@ -12,4 +12,4 @@ eggs/
 
 # Temporary files
 *.swp
-
+temp/
