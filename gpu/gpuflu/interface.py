@@ -21,10 +21,9 @@ from functools import partial
 
 
 #---- Constants ----------------------------------------------------------------
-# GPU_INFLUENZA_BIN \
-#   = "../../../../../code/gpu-influenza/gpu/bin/flu"
 GPU_INFLUENZA_BIN \
-  = "../gpu/bin/flu"
+    = os.path.dirname( os.path.abspath( __file__ ) ) + "/../bin/flu"
+
 OUTPUT_FILENAME_PREFIX         = "transmissions_"
 OUTPUT_NETWORK_FILENAME_PREFIX = "output_network_"
 
@@ -73,8 +72,8 @@ def gpu_influenza( params, quiet=True, debug=False, log="gpu-influenza" ):
         logfilename = log + "_" + str(index) + ".log"
         gpuInfluenzaCmdArgs = buildArgs( index, row, quiet, debug )
         #print( "gpuInfluenzaCmdArgs = ", gpuInfluenzaCmdArgs )
-        #os.system(GPU_INFLUENZA_BIN + gpuInfluenzaCmdArgs + " > " + logfilename)
-        os.system(GPU_INFLUENZA_BIN + gpuInfluenzaCmdArgs)
+        os.system(GPU_INFLUENZA_BIN + gpuInfluenzaCmdArgs + " > " + logfilename)
+        #os.system(GPU_INFLUENZA_BIN + gpuInfluenzaCmdArgs)
         # Process data for current simulation
 
         transmissions = readTransmissions( index )
@@ -202,7 +201,8 @@ def buildArgs( index,
     
     # Add other model parameters
     for key, value in params.items():
-        cmdArgs += " --" + key + ":" +str(int(value))
+        #cmdArgs += " --" + key + ":" +str(int(value))
+        cmdArgs += " --" + key + ":" +str(value)
 
 
     # Finalize and return
@@ -225,7 +225,7 @@ def readTransmissions( index ):
     transmissionsRaw = numpy.fromfile( filename, dtype=numpy.int32 )
     transmissions = pandas.DataFrame( transmissionsRaw.reshape( (-1, 4) ) )
     transmissions.columns = TRANSMISSION_COLUMNS
-    print(f"Read {filename} into dataframe.")
+    #print(f"Read {filename} into dataframe.")
 
     return transmissions
 
@@ -293,7 +293,7 @@ def getCounts(transmissions, nTimesteps):
         I[0][t] += i
         R[0][t] += r
 
-    print("Count E, I and R numbers.")
+    #print("Count E, I and R numbers.")
     # Finalize and return
     return E, I, R
 

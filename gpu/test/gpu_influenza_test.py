@@ -11,8 +11,9 @@ matplotlib.pyplot.switch_backend("Agg")
 import unittest
 
 # IDM packages
-from gpu_influenza import gpu_influenza as gpu_influenza
-from gpu_influenza import gpu_influenza_sampleI as gpu_influenza_sampleI
+import gpuflu
+from gpuflu.interface import gpu_influenza as gpu_influenza
+from gpuflu.interface import gpu_influenza_sampleI as gpu_influenza_sampleI
 
 
 # Parameters

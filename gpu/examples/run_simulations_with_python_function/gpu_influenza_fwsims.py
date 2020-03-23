@@ -6,7 +6,8 @@ import matplotlib
 from matplotlib import pyplot as plt
 matplotlib.pyplot.switch_backend("Agg")
 
-from gpu_influenza import gpu_influenza_sampleI as gpu_influenza_sampleI
+import gpuflu
+from gpuflu.interface import gpu_influenza_sampleI as gpu_influenza_sampleI
 
 
 
