@@ -3,37 +3,37 @@
 Network-based compartmental model. In this model, nodes represent individuals of 
 a given population, and edges represent physical contacts between individuals. 
 The use of a network to model these contacts allows us to incorporate and 
-analyze the social structure of the transmission. **`gpu-influenza`** is 
+analyze the social structure of the transmission. `gpu-influenza` is 
 implemented in CUDA to support computationally efficient models for populations 
 with hundreds of millions of nodes (e.g., >200,000 million nodes on NVIDIA Tesla 
 P100 GPU). It also provides a Python interface that integrates relevant features
 such as network generation, analysis, and testing.
 
-In gpu-influenza`**, disease transmission is governed by a stochastic SEIR 
+In `gpu-influenza`, disease transmission is governed by a stochastic SEIR 
 model. Between-node transmission is modeled as follows:
 
-- Exposure: Nodes become exposed either by acquired transmission from a 
+- **Exposure**: Nodes become exposed either by acquired transmission from a 
   neighboring node or as the result of an importation event. Exposed nodes 
   become infectious after a (lognormal) exposure duration. 
   
-- Infection: Nodes become infected after they leave their exposure state. 
+- **Infection**: Nodes become infected after they leave their exposure state. 
   Infectious nodes recover after a lognormal infectious duration. At each 
   timestep, each infectious node k transmits the infection to neighboring nodes 
   with probability determined by Ro and intervention-based attenuation factors.
   
-- Recovery/removed: Nodes enter the recovered/removed compartment after they 
+- **Recovery/removed**: Nodes enter the recovered/removed compartment after they 
   complete their infection duration.
   
-- Susceptibility: All nodes that are not exposed, infected, or recovered, are 
+- **Susceptibility**: All nodes that are not exposed, infected, or recovered, are 
   susceptible. They are removed from the Susceptible compartment either by 
   importation or infection events.
   
-- Importations: At each time step, new importations are added to the exposed 
+- **Importations**: At each time step, new importations are added to the exposed 
   compartment following a Poisson distribution. Specific nodes that become 
   exposed due to importation events are chosen randomly from the pool of 
   susceptible nodes.
   
-- Initial conditions: A set of initial exposed and infectious nodes are randomly 
+- **Initial conditions**: A set of initial exposed and infectious nodes are randomly 
   selected based on parameters Eo and Io, respectively.
 
 
@@ -71,12 +71,13 @@ model. Between-node transmission is modeled as follows:
 
     `phyton3 setup.py develop`
 
-   NOTES: a. Alternatively, you could run `python3 setup.py install` if you plan
-             on using the package as is, without making any changes to the code.
+   NOTES: 
+   a. Alternatively, you could run `python3 setup.py install` if you plan
+      on using the package as is, without making any changes to the code.
              
-          b. A more basic setup for running the model through a command line 
-             interface can be created by running `make`. The resulting `flu` 
-             binary is installed in the `/bin` directory.
+   b. A more basic setup for running the model through a command line 
+      interface can be created by running `make`. The resulting `flu` 
+      binary is installed in the `/bin` directory.
 
 4. Register environment as jupyter kernel (optional)
 
