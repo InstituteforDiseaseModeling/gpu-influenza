@@ -98,7 +98,7 @@ files (see a description of parameters in the Configuration section below). An
 example of this configuration is in the `gpuflu/flusim.py` file, which can be 
 executed as:
 ```
-python3 ./flusim.py -c demo
+python3 ./gpuflu/flusim.py -c demo
 ```
 
 Additional examples are in the `/examples` directory.
