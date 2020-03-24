@@ -115,7 +115,7 @@ a list of parameters and configuration of the command line interface run:
 
 ## Configuration
 
-***Disease:***
+**Disease:**
 - `r0`                  : mean of Ro. 
 - `r0_stddev`           : standard deviation of Ro.
 - `exposure_duration`   : mean exposed duration (in time-step units).
@@ -126,7 +126,7 @@ a list of parameters and configuration of the command line interface run:
 NOTE: All disease parameters are non-negative floating point numbers, except for 
       `r0` that is a floating point number larger than 0.
 
-***Population and network***
+**Population and network**
 - `population`  : Population size N (positive integer).
 - `connections` : Maximum number of neighbors C that a node can have (positive 
                   integer).
