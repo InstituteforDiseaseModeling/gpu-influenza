@@ -71,7 +71,8 @@ model. Between-node transmission is modeled as follows:
 
     `phyton3 setup.py develop`
 
-   NOTES: 
+   NOTES:
+ 
    a. Alternatively, you could run `python3 setup.py install` if you plan
       on using the package as is, without making any changes to the code.
              
@@ -91,7 +92,7 @@ model. Between-node transmission is modeled as follows:
 
 ## Getting started
 
-On the python interface, model parameters are defined in a pandas dataframe 
+Model parameters are defined in a pandas dataframe (in the python interface). 
 Future versions may also support parameter definitions via configuration
 files (see a description of parameters in the Configuration section below). An
 example of this configuration is in the `gpuflu/flusim.py` file, which can be 
@@ -121,6 +122,7 @@ a list of parameters and configuration of the command line interface run:
 - `exposure_stddev`     : variance of exposed duration.
 - `infectious_duration` : mean infectious duration (in time-step units).
 - `infectious_stddev`   : variance of infectious duration.
+
 NOTE: All disease parameters are non-negative floating point numbers, except for 
       `r0` that is a floating point number larger than 0.
 
@@ -136,23 +138,22 @@ NOTE: All disease parameters are non-negative floating point numbers, except for
                   network is used to set the name of an output file containing 
                   the randomly generated network.
                   
-                  The network file consists of three parts (each part follows 
-                  after the last one). Given a population of size N with a 
-                  maximum degree of C (maximum number of outgoing edges), the 3 
-                  sequential parts of this file are:
+  The network file consists of three parts (each part follows after the last 
+  one). Given a population of size N with a maximum degree of C (maximum number
+  of outgoing edges), the 3 sequential parts of this file are:
                   
-	              - Edge list: N rows of C 32-bit unsigned integers 
-                    (`uint32_t`). The C entries of the ith row represent the 
-                    potential infectees of individual i.
-	              - Edge weights: N rows of C 16-bit floating point values 
-                    (`__half float`). The C entries of the ith row represent the 
-                    strength of connection (transmission) from individual i to 
-                    the corresponding individual whose id is in the same slot in 
-                    part 1.
-	              - Node attributes: N rows of M 16-bit unsigned integers. The M 
-                    entries of the ith row represent the value of attributes for 
-                    node i. Examples of attributes can be the age, zip-code, and 
-                    household id associated to each node.
+  - Edge list: N rows of C 32-bit unsigned integers (`uint32_t`). The C entries
+    of the ith row represent the potential infectees of individual i.
+
+  - Edge weights: N rows of C 16-bit floating point values (`__half float`). 
+    The C entries of the ith row represent the strength of connection 
+    (transmission) from individual i to the corresponding individual whose id 
+    is in the same slot in part 1.
+
+  - Node attributes: N rows of M 16-bit unsigned integers. The M entries of the 
+    ith row represent the value of attributes for node i. Examples of 
+    attributes can be the age, zip-code, and household id associated to each 
+    node.
 
 **Initial and final conditions**
 - `infections` : Initial infections.
@@ -161,7 +162,7 @@ NOTE: All disease parameters are non-negative floating point numbers, except for
 - `seed`       : Random number generator seed (integer).
 
 
-***Execution mode/control***
+**Execution mode/control**
 - `quiet`: Disable verbose mode.
 - `debug`: Enable debugging messages.
 
