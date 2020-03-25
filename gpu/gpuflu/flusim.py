@@ -85,7 +85,7 @@ def getParametersFromConfig( config ):
         report_params.loc[0, "data"      ] = "I"
         report_params.loc[0, "sim_start" ] = 0
         report_params.loc[0, "sim_end"   ] = nSims
-        report_params.loc[0, "sharefig"  ] = 0
+        report_params.loc[0, "reportid"  ] = 0
         report_params.loc[0, "filename"  ] = "simA_infectious.png"
 
                                             
@@ -100,7 +100,7 @@ def getParametersFromConfig( config ):
         report_params.loc[1, "data"      ] = "I"
         report_params.loc[1, "sim_start" ] = 0
         report_params.loc[1, "sim_end"   ] = nSims
-        report_params.loc[1, "sharefig"  ] = 1
+        report_params.loc[1, "reportid"  ] = 1
         report_params.loc[1, "filename"  ] = "simA_infectious_median.png"
 
         report_params.loc[2, "type"      ] = "timeseries"
@@ -112,7 +112,7 @@ def getParametersFromConfig( config ):
         report_params.loc[2, "data"      ] = "E"
         report_params.loc[2, "sim_start" ] = 0
         report_params.loc[2, "sim_end"   ] = nSims
-        report_params.loc[2, "sharefig"  ] = 2
+        report_params.loc[2, "reportid"  ] = 2
         report_params.loc[2, "filename"  ] = "simA_EIR.png"
 
         report_params.loc[3, "type"      ] = "timeseries"
@@ -123,7 +123,7 @@ def getParametersFromConfig( config ):
         report_params.loc[3, "data"      ] = "I"
         report_params.loc[3, "sim_start" ] = 0
         report_params.loc[3, "sim_end"   ] = nSims
-        report_params.loc[3, "sharefig"  ] = 2
+        report_params.loc[3, "reportid"  ] = 2
 
         report_params.loc[4, "type"      ] = "timeseries"
         report_params.loc[4, "subtype"   ] = "median"
@@ -133,7 +133,7 @@ def getParametersFromConfig( config ):
         report_params.loc[4, "data"      ] = "R"
         report_params.loc[4, "sim_start" ] = 0
         report_params.loc[4, "sim_end"   ] = nSims
-        report_params.loc[4, "sharefig"  ] = 2
+        report_params.loc[4, "reportid"  ] = 2
 
         report_params.loc[5, "type"      ] = "timeseries"
         report_params.loc[5, "subtype"   ] = "cumsum_median"
@@ -144,7 +144,7 @@ def getParametersFromConfig( config ):
         report_params.loc[5, "data"      ] = "I"
         report_params.loc[5, "sim_start" ] = 0
         report_params.loc[5, "sim_end"   ] = nSims
-        report_params.loc[5, "sharefig"  ] = 5
+        report_params.loc[5, "reportid"  ] = 5
         report_params.loc[5, "filename"  ] = "simA_infectious_cumulative.png"
 
         report_params.loc[6, "type"      ] = "timeseries"
@@ -158,7 +158,7 @@ def getParametersFromConfig( config ):
         report_params.loc[6, "data"      ] = "I"
         report_params.loc[6, "sim_start" ] = 0
         report_params.loc[6, "sim_end"   ] = nSims
-        report_params.loc[6, "sharefig"  ] = 6
+        report_params.loc[6, "reportid"  ] = 6
         report_params.loc[6, "filename"  ] = "simB_infectious_median.png"
 
         report_params.loc[7, "type"      ] = "timeseries"
@@ -172,8 +172,20 @@ def getParametersFromConfig( config ):
         report_params.loc[7, "data"      ] = "I"
         report_params.loc[7, "sim_start" ] = nSims
         report_params.loc[7, "sim_end"   ] = 2*nSims-1
-        report_params.loc[7, "sharefig"  ] = 6
+        report_params.loc[7, "reportid"  ] = 6
 
+        report_params.loc[8, "type"      ] = "csv"
+        report_params.loc[8, "data"      ] = "I"
+        report_params.loc[8, "sim_start" ] = 0
+        report_params.loc[8, "sim_end"   ] = nSims
+        report_params.loc[8, "reportid"  ] = 8
+        report_params.loc[8, "filename"  ] = "sim_infectious.csv"
+
+        report_params.loc[9, "type"      ] = "csv"
+        report_params.loc[9, "data"      ] = "I"
+        report_params.loc[9, "sim_start" ] = nSims
+        report_params.loc[9, "sim_end"   ] = 2*nSims-1
+        report_params.loc[9, "reportid"  ] = 8
 
     # Set parameters based on configuration file
     elif configExtension == ".config":
@@ -198,8 +210,7 @@ def buildReports( report_params, EIR ):
      report_params : Pandas dataframe containing report generation parameters.
      EIR           : Simulation results (pandas dataframe)
     """
-
-    reports = report_params.groupby( "sharefig" )
+    reports = report_params.groupby( ["reportid"] ) 
 
     for reportId in reports.groups:
         report = reports.get_group( reportId )
@@ -207,6 +218,8 @@ def buildReports( report_params, EIR ):
 
         if reportType == "timeseries":
             gpuflu.reports.timeseries( report, EIR )
+        elif reportType == "csv":
+            gpuflu.reports.csv( report, EIR )
         else:
             print( "report type ", reportType, " not supported" )
 

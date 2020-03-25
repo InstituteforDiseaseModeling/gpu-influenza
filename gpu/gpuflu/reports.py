@@ -9,6 +9,41 @@ matplotlib.pyplot.switch_backend("Agg")
 
 
 
+def csv( params, data ):
+    """Generate CSV files for gpu-influenza simulations.
+     Args:
+      params : Pandas dataframe with parameters for the reports. Each row
+               defines a report and each columns defines a parameter for
+               reports. The following columns are supported:
+               - data      : Regular expression identifying the set of 
+                             columns to be included in the data selection.
+               - sim_start : Index of first simulation to include in the
+                             data selection.
+               - sim_end   : Index +1 of last simulation to include in the
+                             data selection.
+               - filename  : Name of output file.  
+      data   : Simulation results (pandas dataframe).
+    """
+    # Initialize output dataframe
+    out = pandas.DataFrame()
+
+    # Append individual data groups to output dataframe
+    for index, row in params.iterrows():
+        xPrefix = row["data"     ] 
+        start   = int( row["sim_start"] )
+        end     = int( row["sim_end"  ] )
+
+        x = data.filter( regex = "^" + xPrefix, axis = 1 ).iloc[start:end]
+        out = out.append( x, ignore_index=True )
+
+    # Write output file and return
+    filename = params["filename"].values[0]
+    out.to_csv( filename )
+    return
+
+
+
+
 def timeseries( params, data ):
     """Generate timeseries figures for gpu-influenza simulations.
      Args:
@@ -31,7 +66,7 @@ def timeseries( params, data ):
                              selected data. Otherwise, it can be:
                              "range" : Ordinal names are used in the x-axis.
                - ylabel    : y-axis label.
-               - sim_start : Index of first simulation in include in the
+               - sim_start : Index of first simulation to include in the
                              data selection.
                - sim_end   : Index +1 of last simulation to include in the
                              data selection.
