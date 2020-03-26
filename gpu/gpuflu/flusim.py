@@ -33,9 +33,9 @@ def getParametersFromConfig( config ):
 
     # Set parameters for demo
     if configFilename == "demo":
-        nSims = 10
+        nSims = 50
         simulation_params = pandas.DataFrame( { "population"  : [ 10000 ],
-                                                "connections" : [   500 ],
+                                                "connections" : [    50 ],
                                                 "exposures"   : [     0 ],
                                                 "infections"  : [     1 ],
                                                 "time"        : [   100 ],
@@ -48,7 +48,7 @@ def getParametersFromConfig( config ):
                                                }
                                              )
         simulation_paramsB = pandas.DataFrame( { "population"  : [ 10000 ],
-                                                "connections" : [   500 ],
+                                                "connections" : [    50 ],
                                                 "exposures"   : [     0 ],
                                                 "infections"  : [     1 ],
                                                 "time"        : [   100 ],
@@ -87,7 +87,6 @@ def getParametersFromConfig( config ):
         report_params.loc[0, "sim_end"   ] = nSims
         report_params.loc[0, "reportid"  ] = 0
         report_params.loc[0, "filename"  ] = "simA_infectious.png"
-
                                             
         report_params.loc[1, "type"      ] = "timeseries"
         report_params.loc[1, "subtype"   ] = "median"
@@ -216,6 +215,57 @@ def getParametersFromConfig( config ):
         report_params.loc[12, "sim_start"] = 0
         report_params.loc[12, "sim_end"  ] = nSims
         report_params.loc[12, "reportid" ] = 10
+
+        report_params.loc[13, "type"     ] = "timeseries"
+        report_params.loc[13, "subtype"  ] = "simple"
+        report_params.loc[13, "title"    ] = "Incidence"
+        report_params.loc[13, "label"    ] = "Incidence"
+        report_params.loc[13, "xlabel"   ] = "day"
+        report_params.loc[13, "xtype"    ] = "range"
+        report_params.loc[13, "data"     ] = "incidence"
+        report_params.loc[13, "sim_start"] = 0
+        report_params.loc[13, "sim_end"  ] = nSims
+        report_params.loc[13, "reportid" ] = 13
+        report_params.loc[13, "filename" ] = "simA_incidence.png"
+
+        report_params.loc[14, "type"      ] = "timeseries"
+        report_params.loc[14, "subtype"   ] = "cumsum_median"
+        report_params.loc[14, "title"     ] = "Incidence (cumulative)"
+        report_params.loc[14, "label"     ] = "Incidence (cumulative)"
+        report_params.loc[14, "xlabel"    ] = "day"
+        report_params.loc[14, "xtype"     ] = "range"
+        report_params.loc[14, "data"      ] = "incidence"
+        report_params.loc[14, "sim_start" ] = 0
+        report_params.loc[14, "sim_end"   ] = nSims
+        report_params.loc[14, "reportid"  ] = 14
+        report_params.loc[14, "filename"  ] = "simA_incidence_cumulative.png"
+
+        report_params.loc[15, "type"      ] = "timeseries"
+        report_params.loc[15, "subtype"   ] = "median"
+        report_params.loc[15, "qlow"      ] = 0.1
+        report_params.loc[15, "qhigh"     ] = 0.9
+        report_params.loc[15, "title"     ] = "Incidence"
+        report_params.loc[15, "label"     ] = "Ro_A"
+        report_params.loc[15, "xlabel"    ] = "day"
+        report_params.loc[15, "xtype"     ] = "range"
+        report_params.loc[15, "data"      ] = "incidence"
+        report_params.loc[15, "sim_start" ] = 0
+        report_params.loc[15, "sim_end"   ] = nSims
+        report_params.loc[15, "reportid"  ] = 15
+        report_params.loc[15, "filename"  ] = "simB_incidence_median.png"
+
+        report_params.loc[16, "type"      ] = "timeseries"
+        report_params.loc[16, "subtype"   ] = "median"
+        report_params.loc[16, "qlow"      ] = 0.1
+        report_params.loc[16, "qhigh"     ] = 0.9
+        report_params.loc[16, "title"     ] = "Incidence"
+        report_params.loc[16, "label"     ] = "Ro_B"
+        report_params.loc[16, "xlabel"    ] = "day"
+        report_params.loc[16, "xtype"     ] = "range"
+        report_params.loc[16, "data"      ] = "incidence"
+        report_params.loc[16, "sim_start" ] = nSims
+        report_params.loc[16, "sim_end"   ] = 2*nSims-1
+        report_params.loc[16, "reportid"  ] = 15
 
 
     # Set parameters based on configuration file
