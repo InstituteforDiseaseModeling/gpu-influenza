@@ -33,7 +33,7 @@ def getParametersFromConfig( config ):
 
     # Set parameters for demo
     if configFilename == "demo":
-        nSims = 200
+        nSims = 10
         simulation_params = pandas.DataFrame( { "population"  : [ 10000 ],
                                                 "connections" : [   500 ],
                                                 "exposures"   : [     0 ],

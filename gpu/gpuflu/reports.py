@@ -54,6 +54,9 @@ def histogram( params, data ):
                              data selection.
                - sim_end   : Index +1 of last simulation to include in the
                              data selection.
+               - title     : Figure title.
+               - xlabel    : x-axis label.
+               - ylabel    : y-axis label.
                - filename  : Name of output file.  
       data   : Simulation results (pandas dataframe).
     """
@@ -118,7 +121,7 @@ def timeseries( params, data ):
                - label     : Data series label.
                - xlabel    : x-axis label.
                - xtype     : Type of ticks to be used in the x axis. If not
-                             define use the name of the columns of the 
+                             defined use the name of the columns of the 
                              selected data. Otherwise, it can be:
                              "range" : Ordinal names are used in the x-axis.
                - ylabel    : y-axis label.
