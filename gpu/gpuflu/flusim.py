@@ -33,7 +33,7 @@ def getParametersFromConfig( config ):
 
     # Set parameters for demo
     if configFilename == "demo":
-        nSims = 20
+        nSims = 200
         simulation_params = pandas.DataFrame( { "population"  : [ 10000 ],
                                                 "connections" : [   500 ],
                                                 "exposures"   : [     0 ],
@@ -187,6 +187,37 @@ def getParametersFromConfig( config ):
         report_params.loc[9, "sim_end"   ] = 2*nSims-1
         report_params.loc[9, "reportid"  ] = 8
 
+        report_params.loc[10, "type"     ] = "histogram"
+        report_params.loc[10, "subtype"  ] = "simple"
+        report_params.loc[10, "bins"     ] = 10
+        report_params.loc[10, "title"    ] = "Infectious (frequency)"
+        report_params.loc[10, "ylabel"   ] = "day 10"
+        report_params.loc[10, "xlabel"   ] = "Number of infectious individuals"
+        report_params.loc[10, "col"      ] = "I_10"
+        report_params.loc[10, "sim_start"] = 0
+        report_params.loc[10, "sim_end"  ] = nSims
+        report_params.loc[10, "reportid" ] = 10
+        report_params.loc[10, "filename" ] = "simA_infectious_hist.png"
+
+        report_params.loc[11, "type"     ] = "histogram"
+        report_params.loc[11, "subtype"  ] = "simple"
+        report_params.loc[11, "bins"     ] = 20
+        report_params.loc[11, "ylabel"   ] = "day 20"
+        report_params.loc[11, "col"      ] = "I_20"
+        report_params.loc[11, "sim_start"] = 0
+        report_params.loc[11, "sim_end"  ] = nSims
+        report_params.loc[11, "reportid" ] = 10
+
+        report_params.loc[12, "type"     ] = "histogram"
+        report_params.loc[12, "subtype"  ] = "simple"
+        report_params.loc[12, "bins"     ] = 50
+        report_params.loc[12, "ylabel"   ] = "day 30"
+        report_params.loc[12, "col"      ] = "I_30"
+        report_params.loc[12, "sim_start"] = 0
+        report_params.loc[12, "sim_end"  ] = nSims
+        report_params.loc[12, "reportid" ] = 10
+
+
     # Set parameters based on configuration file
     elif configExtension == ".config":
         sys.exit( "configuration file execution not supported" )
@@ -218,6 +249,8 @@ def buildReports( report_params, EIR ):
 
         if reportType == "timeseries":
             gpuflu.reports.timeseries( report, EIR )
+        elif reportType == "histogram":
+            gpuflu.reports.histogram( report, EIR )
         elif reportType == "csv":
             gpuflu.reports.csv( report, EIR )
         else:
