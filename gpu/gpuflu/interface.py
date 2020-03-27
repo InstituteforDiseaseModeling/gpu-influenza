@@ -21,9 +21,10 @@ from functools import partial
 
 
 #---- Constants ----------------------------------------------------------------
-GPU_INFLUENZA_BIN \
-    = os.path.dirname( os.path.abspath( __file__ ) ) + "/../bin/flu"
-
+with open( os.path.dirname(os.path.abspath(__file__)) + "/config_bin_path.txt", 
+           "r"
+          ) as configBinPath:
+    GPU_INFLUENZA_BIN = configBinPath.read().strip() + "/flu"
 OUTPUT_FILENAME_PREFIX         = "transmissions_"
 OUTPUT_NETWORK_FILENAME_PREFIX = "output_network_"
 
