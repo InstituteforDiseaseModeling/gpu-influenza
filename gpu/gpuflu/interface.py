@@ -302,8 +302,10 @@ def getCounts(transmissions, nTimesteps):
         R[0][t] += r
 
     #print("Count E, I and R numbers.")
+
     # Finalize and return
-    i_counts_nonNegIndex = i_counts.drop( index=[-1] )
+    #i_counts_nonNegIndex = i_counts.drop( index=[-1] )
+    i_counts_nonNegIndex = i_counts.drop( index=[-1], errors="ignore" )
     numpy.put( incidence, i_counts_nonNegIndex.index, i_counts_nonNegIndex.values )
     return E, I, R, incidence
 
