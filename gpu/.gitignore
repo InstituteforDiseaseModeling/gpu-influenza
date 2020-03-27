@@ -9,7 +9,9 @@ develop-eggs/
 eggs/
 *.egg-info/
 *.egg
+gpuflu/config_bin_path.txt
 
 # Temporary files
 *.swp
 temp/
+

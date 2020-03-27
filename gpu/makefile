@@ -39,7 +39,8 @@ flu: $(SRCDIR)/*.cu
 	nvcc \
 		$(GENCODE_FLAGS) \
 		$(CXX_FLAGS) \
-		-o bin/$@ $^
+		-o $(BINDIR)/$@ $^
+	@echo $(abspath $(BINDIR)) > ./gpuflu/config_bin_path.txt
 
 debug: $(SRCDIR)/*.cu
 	@mkdir -p $(BINDIR)
@@ -47,7 +48,7 @@ debug: $(SRCDIR)/*.cu
 		$(GENCODE_FLAGS) \
 		$(CXX_FLAGS) \
 		--debug \
-		-o bin/debug $^
+		-o $(BINDIR)/debug $^
 
 clean:
-	rm -f bin/*
+	rm -f $(BINDIR)/*
