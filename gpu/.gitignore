@@ -15,3 +15,7 @@ gpuflu/config_bin_path.txt
 *.swp
 temp/
 
+# Examples
+examples/*/*.log
+examples/*/*.bin
+
