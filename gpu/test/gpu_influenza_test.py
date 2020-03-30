@@ -26,7 +26,7 @@ modelParams = pandas.DataFrame( { "population"  : [100, 200],
                                   "connections" : [  5, 4],
                                   "exposures"   : [  0, 1],
                                   "infections"  : [  3, 5],
-                                  "time"        : [ 40, 30],
+                                  "time"        : [ 40, 30]
                                   #"p"           : [1.0, 1.0]
                                  }
                                 )
@@ -34,16 +34,26 @@ modelParams_1_connection = pandas.DataFrame( { "population"  : [500],
                                                "connections" : [  1],
                                                "exposures"   : [  0],
                                                "infections"  : [  1],
-                                               "time"        : [500],
+                                               "time"        : [500]
                                                #"p"           : [1.0, 1.0]
                                  }
                                 )
-
+modelParams_2_connections = pandas.DataFrame( { "population"  : [500],
+                                                "connections" : [  2],
+                                                "exposures"   : [  0],
+                                                "infections"  : [  1],
+                                                "time"        : [ 70],
+                                                "stddevE"     : [  1],
+                                                "stddevI"     : [  1],
+                                                "stddevr0"    : [  1]
+                                                #"p"           : [1.0, 1.0]
+                                 }
+                                )
 modelParams_n_connections = pandas.DataFrame( { "population"  : [500],
                                                 "connections" : [500],
                                                 "exposures"   : [  0],
                                                 "infections"  : [  1],
-                                                "time"        : [ 70],
+                                                "time"        : [ 70]
                                                 #"p"           : [1.0, 1.0]
                                  }
                                 )
@@ -56,12 +66,17 @@ sampleI_expected_result = pandas.read_csv(os.path.join(output_folder, "gpu_influ
 one_connection_expected_result = pandas.read_csv(os.path.join(output_folder, "gpu_influenza_1_connection_output.csv"))
 sampleI_one_connection_expected_result = pandas.read_csv(os.path.join(output_folder, "gpu_influenza_sampleI_1_connection_output.csv"))
 
+two_connections_expected_result = pandas.read_csv(os.path.join(output_folder, "gpu_influenza_2_connections_output.csv"))
+sampleI_two_connections_expected_result = pandas.read_csv(os.path.join(output_folder, "gpu_influenza_sampleI_2_connections_output.csv"))
+
+
 n_connections_expected_result = pandas.read_csv(os.path.join(output_folder, "gpu_influenza_n_connections_output.csv"))
 sampleI_n_connections_expected_result = pandas.read_csv(os.path.join(output_folder, "gpu_influenza_sampleI_n_connections_output.csv"))
 
 
 class  TestGpuInfluenza(unittest.TestCase):
     def setUp(self):
+        print(f"running {self._testMethodName}:\n")
         pass
 
     def tearDown(self):
@@ -113,7 +128,26 @@ class  TestGpuInfluenza(unittest.TestCase):
                                    "gpu_influenza_1_connection_sampleI.png")
 
         self.assertTrue(ySampled.equals(sampleI_one_connection_expected_result))
-    
+
+    def test_gpu_influenza_2_connections(self):
+        numpy.random.seed(seed)
+        # Run model
+        y = gpu_influenza(modelParams_2_connections)
+
+        plot_gpu_influenza(y, two_connections_expected_result, plot_name="gpu_influenza_2_connection.png")
+
+        self.assertTrue(tolerance_test(y, two_connections_expected_result, 2))
+
+    def test_gpu_influenza_sampleI_2_connections(self):
+        numpy.random.seed(seed)
+        # Run model
+        ySampled = gpu_influenza_sampleI(modelParams_n_connections)
+
+        plot_gpu_influenza_sampleI(ySampled, two_connections_expected_result, sampleI_two_connections_expected_result,
+                                   "gpu_influenza_2_connections_sampleI.png")
+
+        self.assertTrue(tolerance_test(ySampled, sampleI_two_connections_expected_result, 15))
+
     def test_gpu_influenza_n_connections(self):
         numpy.random.seed(seed)
         # Run model
@@ -132,8 +166,8 @@ class  TestGpuInfluenza(unittest.TestCase):
                                    "gpu_influenza_n_connections_sampleI.png")
 
         self.assertTrue(tolerance_test(ySampled, sampleI_n_connections_expected_result, 20))
-   
 
+        
 def plot_gpu_influenza(y, expected_result, plot_name):
     # Draw some plots
     plt.figure()  # Full model output
