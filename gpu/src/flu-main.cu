@@ -13,6 +13,8 @@
 #include "flu-kernel.h"
 #include "flu-main.h"
 
+#include "interventions.h"
+
 /*
 
 OVERVIEW:
@@ -143,6 +145,8 @@ int main(int argc, const char* argv[])
                 &state.counters->transmissions, state.tx_events,
                 state.prngStates
                 );
+
+            process_interventions(step);
 
             CheckReturn(cudaDeviceSynchronize());
             CheckReturn(cudaGetLastError());
