@@ -4,7 +4,6 @@ import os
 
 # Todo: config block size, nvidia architecture
 os.system( "make" )
-# Todo: add binary to path
 
 setup( name        = "gpuflu",
        version     = "0.1",
@@ -23,4 +22,5 @@ setup( name        = "gpuflu",
                             "jupyter-console",
                             "jupyter-client"
                            ],
+       include_package_data = True
      )

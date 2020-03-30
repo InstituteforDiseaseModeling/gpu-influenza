@@ -9,11 +9,105 @@ matplotlib.pyplot.switch_backend("Agg")
 
 
 
+def csv( params, data ):
+    """Generate CSV files for gpu-influenza simulations.
+     Args:
+      params : Pandas dataframe with parameters for the reports. Each row
+               defines a report and each column defines a parameter for
+               reports. The following columns are supported:
+               - data      : Regular expression identifying the set of 
+                             columns to be included in the data selection.
+               - sim_start : Index of first simulation to include in the
+                             data selection.
+               - sim_end   : Index +1 of last simulation to include in the
+                             data selection.
+               - filename  : Name of output file.  
+      data   : Simulation results (pandas dataframe).
+    """
+    # Initialize output dataframe
+    out = pandas.DataFrame()
+
+    # Append individual data groups to output dataframe
+    for index, row in params.iterrows():
+        xPrefix = row["data"     ] 
+        start   = int( row["sim_start"] )
+        end     = int( row["sim_end"  ] )
+
+        x = data.filter( regex = "^" + xPrefix, axis = 1 ).iloc[start:end]
+        out = out.append( x, ignore_index=True )
+
+    # Write output file and return
+    filename = params["filename"].values[0]
+    out.to_csv( filename )
+    return
+
+
+
+def histogram( params, data ):
+    """Generate histogram figures for gpu-influenza simulations.
+     Args:
+      params : Pandas dataframe with parameters for the reports. Each row
+               defines a report and each column defines a parameter for
+               reports. The following columns are supported:
+               - col       : Name of column for data selection.
+               - sim_start : Index of first simulation to include in the
+                             data selection.
+               - sim_end   : Index +1 of last simulation to include in the
+                             data selection.
+               - title     : Figure title.
+               - xlabel    : x-axis label.
+               - ylabel    : y-axis label.
+               - filename  : Name of output file.  
+      data   : Simulation results (pandas dataframe).
+    """
+    # Read figure formatting parameters
+    subtype  = params["subtype" ].values[0] if "subtype" in params else False
+    title    = params["title"   ].values[0] if "title"   in params else False
+    xlabel   = params["xlabel"  ].values[0] if "xlabel"  in params else False
+    filename = params["filename"].values[0]
+    nHistograms = len(params)
+
+
+    # Draw figure
+    fig = plt.figure()
+    fig, axs = plt.subplots( nHistograms, 1, sharex=True, tight_layout=True)
+    thisHist = 0
+    for index, row in params.iterrows():
+        col   = row["col"] 
+        start = int( row["sim_start"] )
+        end   = int( row["sim_end"  ] )
+        bins  = int( row["bins"     ] ) if "bins" in row else 10 
+        ylabel = row["ylabel"] if "ylabel" in row else False
+        thisAx = axs[thisHist]
+
+        x = data.iloc[start:end]
+        x.hist( column=col, bins=bins, ax=thisAx )
+        thisAx.set_title("") 
+        if ylabel:
+             thisAx.set_ylabel( ylabel )
+
+        thisHist = thisHist + 1
+
+
+    # Figure formatting
+    axs[0].set_title( title )
+    if xlabel:
+        thisAx.set_xlabel( xlabel )
+
+
+    # Finalize and return
+    plt.tight_layout()
+    plt.savefig( filename )
+    plt.close(fig)
+    return
+
+
+
 def timeseries( params, data ):
     """Generate timeseries figures for gpu-influenza simulations.
      Args:
       params : Pandas dataframe with parameters for the reports. Each row
-               defines a report and each columns defines a parameter for
+               defines a report and each column defines a parameter for
                reports. The following columns are supported:
                - subtype   : Defines the type of timeseries figure to 
                              generate. It can be:
@@ -27,11 +121,11 @@ def timeseries( params, data ):
                - label     : Data series label.
                - xlabel    : x-axis label.
                - xtype     : Type of ticks to be used in the x axis. If not
-                             define use the name of the columns of the 
+                             defined use the name of the columns of the 
                              selected data. Otherwise, it can be:
                              "range" : Ordinal names are used in the x-axis.
                - ylabel    : y-axis label.
-               - sim_start : Index of first simulation in include in the
+               - sim_start : Index of first simulation to include in the
                              data selection.
                - sim_end   : Index +1 of last simulation to include in the
                              data selection.

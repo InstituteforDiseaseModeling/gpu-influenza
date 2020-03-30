@@ -1,4 +1,4 @@
-name: gpuflu_v1
+name: gpuflu_v6
 channels:
   - defaults
 
