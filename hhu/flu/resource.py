@@ -1,3 +1,4 @@
+from builtins import str
 import logging
 log = logging.getLogger(__name__)
 

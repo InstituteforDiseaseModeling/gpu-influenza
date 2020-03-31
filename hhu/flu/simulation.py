@@ -1,11 +1,19 @@
+from __future__ import print_function
+from builtins import str
+from builtins import range
+from builtins import object
 import logging
 log = logging.getLogger(__name__)
 import numpy as np
-from flu.distribution import get_value_from_distribution
+import numpy.random as ran
+import math, copy
+import os
+from itertools import repeat
+from .distribution import get_value_from_distribution
 
-np.set_printoptions(threshold=np.nan)
+np.set_printoptions(threshold=np.inf)
 
-class Simulation:
+class Simulation(object):
 
     def __init__(self, configs):
         #read configs
@@ -36,8 +44,11 @@ class Simulation:
         self.number_new_infections = 0
         self.infection_network = []
 
+        #seed random number generator
+        if "random_seed" in configs:
+            ran.seed(configs["random_seed"])
+			
         return
-
 
     # @profile
     def populate(self):
@@ -105,7 +116,7 @@ class Simulation:
 
 
     # @profile
-    def update(self, t):
+    def update(self,t, burn_in = False):
         #clear new infections and infection network
         self.number_new_infections = 0
         self.infection_network = []
@@ -115,14 +126,16 @@ class Simulation:
 
         #step 1: find new infections based on interaction matrix
         #generate a random binomial matrix based on probabilities
-        log.debug("infections_vector:\n{0}".format(self.infections_vector))
+        #log.debug("infections_vector:\n{0}".format(self.infections_vector))
         random_matrix_t = np.copy(self.network_matrix)
         random_matrix_t[self.infections_vector > 0] = np.random.binomial(1,self.network_matrix[self.infections_vector > 0])
         log.debug("transmission matrix after ran number:\n{0}".format(random_matrix_t))
         new_infection = np.dot(self.infections_vector, random_matrix_t)
+        log.debug("new_infection matrix after dot:\n{0}".format(new_infection))
         new_infection[new_infection > 1]=1
         new_infection = new_infection * (1 - self.excluded_vector)
         new_infection_idx = ( new_infection - self.infections_vector ) > 0
+        log.debug("new_infection_idx matrix:\n{0}".format(new_infection_idx))
 
         self.number_new_infections = np.sum(new_infection)
 
@@ -146,7 +159,7 @@ class Simulation:
         active_infections = self.infection_timers_vector > 0
         new_recover_idx = self.infection_timers_vector == 1
         self.infection_timers_vector[active_infections] -= 1
-        self.excluded_vector[new_recover_idx] = 1
+        self.excluded_vector[new_recover_idx] = True
 
         log.debug("infection_timers_vector:\n{0}".format(self.infection_timers_vector))
         log.debug("excluded_vector:\n{0}".format(self.excluded_vector))

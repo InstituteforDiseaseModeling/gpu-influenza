@@ -1,11 +1,10 @@
 // influenza.cpp : Defines the entry point for the console application.
 //
 
-#include "stdafx.h"
-
 #include <chrono>
 #include <iostream>
 #include <random>
+#include <cstring>
 
 // TODO - include attenuation factor for each agent
 
