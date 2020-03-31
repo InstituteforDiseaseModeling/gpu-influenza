@@ -77,7 +77,7 @@ __global__ void initialize_prng(curandState* prngState, uint32_t population, uin
     {
         memset(prngState + individual, 0, sizeof(curandState));
         //curand_init(seed, individual, 0, prngState + individual);    // VERY SLOW!
-        curand_init(individual, 0, 0, prngState + individual);
+        curand_init(individual + seed, 0, 0, prngState + individual);
     }
 }
 
