@@ -19,3 +19,4 @@ temp/
 examples/*/*.log
 examples/*/*.bin
 
+.vscode/

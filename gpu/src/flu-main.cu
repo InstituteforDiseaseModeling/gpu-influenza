@@ -146,10 +146,10 @@ int main(int argc, const char* argv[])
                 state.prngStates
                 );
 
-            process_interventions(step);
-
             CheckReturn(cudaDeviceSynchronize());
             CheckReturn(cudaGetLastError());
+
+            process_interventions(step, state.counters->infected_currently);
 
             extinction_duration = 0;
 
