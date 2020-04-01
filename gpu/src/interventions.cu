@@ -12,7 +12,7 @@
 #include "flu-main.h"
 #include "interventions.h"
 
-#include "csv.h"
+#include <csv/reader.hpp>
 
 struct IIntervention
 {
@@ -82,11 +82,6 @@ static void initialize(void)
     initialized = true;
 
     return;
-}
-
-void load_interventsion(std::string& filename)
-{
-
 }
 
 void process_interventions(uint32_t step, uint32_t infectious_count)
@@ -324,4 +319,50 @@ void neighbor_matching_intervention(uint32_t step, SimulationState& state, CON_T
         state.beta_factor,
         factor
     );
+}
+
+void load_interventsion(std::string& filename)
+{
+    enum
+    {
+        ATTRIBUTE        = 1,
+        NEIGHBOR         = 2,
+        NODEMATCHING     = 3,
+        NEIGHBORMATCHING = 4
+    }
+    std::map<std::string, uint32_t> map({{"ATTRIBUTE", ATTRIBUTE}, {"NEIGHBOR", NEIGHBOR}, {NODEMATCHING}})
+
+    csv::Reader reader;
+    reader.read(filename);
+    auto rows = reader.rows();
+    for (auto& row : rows)
+    {
+        auto tag                 =               row["tag"];
+        uint32_t type            = uint32_t(atoi(row["type"]));
+        auto trigger             =               row["trigger"];
+        uint32_t trigger_value   = uint32_t(atoi(row["trigger_value"]));
+        uint32_t duration        = uint32_t(atoi(row["duration"]));
+        float factor             =          atof(row["factor"]);
+        auto attribute           =               row["attribute"];
+        uint16_t attribute_value = uint16_t(atoi(row["attribute_value"]));
+
+        switch (map.at(type))
+        {
+            case ATTRIBUTE:
+                break;
+
+            case NEIGHBOR:
+                break;
+
+            case NODEMATCHING:
+                break;
+
+            case NEIGHBORMATCHING:
+                break;
+
+            default:
+                fprintf(stderr, "Unknown intervention type '%s' in campaign file '%s'.\n", type, filename.c_str());
+                exit(1);
+        }
+    }
 }

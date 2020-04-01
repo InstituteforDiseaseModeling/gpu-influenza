@@ -29,7 +29,7 @@ BINDIR=./bin
 SRCDIR=./src
 INCLUDEDIR=./include
 
-CXX_FLAGS=-I/usr/local/include -I../shared -I$(INCLUDEDIR) -lineinfo -rdc=true -std=c++11 --maxrregcount=63 --ptxas-options=-v
+CXX_FLAGS=-I/usr/local/include -I../shared -I$(INCLUDEDIR) -lineinfo -rdc=true -std=c++14 --maxrregcount=63 --ptxas-options=-v
 #################################################################################################
 
 all: flu debug

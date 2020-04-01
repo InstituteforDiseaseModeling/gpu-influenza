@@ -72,7 +72,7 @@ class Intervention(object):
         return self._attribute_value
 
     def __str__(self):
-        return f"{self.tag},{self.trigger},{self.trigger_value},{self.duration},{self.factor},{self.attribute},{self.attribute_value}"
+        return f"{self.tag},{self.type},{self.trigger},{self.trigger_value},{self.duration},{self.factor},{self.attribute},{self.attribute_value}"
 
 
 class AttributeIntervention(Intervention):
