@@ -31,17 +31,19 @@ CXX_FLAGS=-I/usr/local/include -I../shared -lineinfo -rdc=true -std=c++11 --maxr
 all: flu debug
 
 flu: *.cu
-	nvcc \
-		$(GENCODE_FLAGS) \
-		$(CXX_FLAGS) \
-		-o bin/$@ $^
+    @mkdir bin/
+    nvcc \
+        $(GENCODE_FLAGS) \
+        $(CXX_FLAGS) \
+        -o bin/$@ $^
 
 debug: *.cu
-	nvcc \
-		$(GENCODE_FLAGS) \
-		$(CXX_FLAGS) \
-		--debug \
-		-o bin/debug $^
+    @mkdir bin/
+    nvcc \
+        $(GENCODE_FLAGS) \
+        $(CXX_FLAGS) \
+        --debug \
+        -o bin/debug $^
 
 clean:
-	rm -f bin/*
+    rm -f bin/*
