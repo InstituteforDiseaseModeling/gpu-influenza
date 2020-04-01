@@ -20,7 +20,7 @@ struct IIntervention
 // public:
     IIntervention() {}
     virtual ~IIntervention() {}
-    virtual void Apply(uint32_t time_step) = 0;
+    virtual void Apply(uint32_t time_step, Configuration& config, SimulationState& state) = 0;
 };
 
 struct BaseIntervention : IIntervention
@@ -49,8 +49,9 @@ BaseIntervention::BaseIntervention(const std::string& tag, uint32_t duration, fl
 static std::map<uint32_t, std::vector<IIntervention*>> scheduled_interventions;
 static std::vector<std::pair<uint32_t, IIntervention*>> triggered_interventions;
 
-void process_interventions(uint32_t step, uint32_t infectious_count)
+void process_interventions(uint32_t step, Configuration& config, SimulationState& state)
 {
+    uint32_t infectious_count = state.counters->infected_currently;
     printf("Processing interventions for time step %d (%d currently infected/infectious).\n", step, infectious_count);
 
     /*
@@ -76,7 +77,7 @@ void process_interventions(uint32_t step, uint32_t infectious_count)
     {
         for (auto intervention : (*it).second)
         {
-            intervention->Apply(step);
+            intervention->Apply(step, config, state);
         }
     }
 
@@ -85,7 +86,7 @@ void process_interventions(uint32_t step, uint32_t infectious_count)
         auto& entry = triggered_interventions[i];
         if ( infectious_count >= entry.first )
         {
-            entry.second->Apply(step);
+            entry.second->Apply(step, config, state);
             // Replace the current intervention with the last one in the vector...
             triggered_interventions[i] = triggered_interventions[triggered_interventions.size()-1];
             triggered_interventions.pop_back(); // Pop/delete the last intervention off the vector
@@ -159,33 +160,34 @@ neighbor_intervention(): The Intervention event is applied to all neighbors of e
 */
 
 __global__ void neighbor_intervention_kernel(
-    uint32_t population_size,
-    IND_TYPE* network_m,
+    uint32_t queue_size,
+    IND_TYPE* queue,
+    CON_TYPE* connect_m,
     uint32_t connection_count,
-    CON_TYPE* beta_modifier,
     float factor
 )
 {
-    uint32_t source_individual = (blockDim.x * blockIdx.x) + threadIdx.x;
-    if ( source_individual < population_size )
+    uint32_t queue_index = (blockDim.x * blockIdx.x) + threadIdx.x;
+    if ( queue_index < queue_size )
     {
-        IND_TYPE* neighbors = network_m + (connection_count * source_individual);
+        uint32_t individual_id = queue[queue_index];
+        CON_TYPE* connections = connect_m + (connection_count * individual_id);
         for (uint32_t neighbor_index = 0; neighbor_index < connection_count; ++neighbor_index)
         {
-            IND_TYPE target_individual = neighbors[neighbor_index];
-            beta_modifier[target_individual] *= factor;
+            connections[neighbor_index] *= factor;
         }
     }
 }
 
-void neighbor_intervention(uint32_t step, SimulationState& state, float factor)
+void neighbor_intervention(uint32_t step, Configuration& config, SimulationState& state, float factor)
 {
     uint32_t blockX = BLOCK_SIZE;
     dim3 block(blockX, 1, 1);
     uint32_t gridX = (state.population_size + block.x - 1) / block.x;
     dim3 grid(gridX, 1, 1);
 
-    neighbor_intervention_kernel<<<grid, block>>>( state.population_size, state.network_m, state.max_connections, state.beta_factor, factor);
+    IND_TYPE* queue = ((step & 1) ? state.queue_a_inf : state.queue_b_inf);
+    neighbor_intervention_kernel<<<grid, block>>>( state.counters->infected_currently, queue, state.connect_m, config.max_connections, factor );
 
     CheckReturn(cudaDeviceSynchronize());
     CheckReturn(cudaGetLastError());
@@ -220,7 +222,7 @@ void node_matching_intervention(uint32_t step, SimulationState& state, uint32_t 
     uint32_t gridX = max((state.counters->infected_currently + block.x - 1) / block.x, 1);
     dim3 grid(gridX, 1, 1);
 
-    uint32_t* infected_queue = ((step & 1) ? state.queue_a_inf : state.queue_b_inf);
+    // uint32_t* infected_queue = ((step & 1) ? state.queue_a_inf : state.queue_b_inf);
 
     node_matching_intervention_kernel<<<grid, block>>>();
 }
@@ -296,7 +298,7 @@ public:
     AttributeIntervention(const std::string& tag, uint32_t duration, float factor, const std::string& attribute = "", uint32_t attribute_value = 0);
     virtual ~AttributeIntervention() {}
 
-    virtual void Apply(uint32_t step);
+    virtual void Apply(uint32_t step, Configuration& config, SimulationState& state) override;
 };
 
 AttributeIntervention::AttributeIntervention(const std::string& tag, uint32_t duration, float factor, const std::string& attribute, uint32_t attribute_value)
@@ -305,7 +307,7 @@ AttributeIntervention::AttributeIntervention(const std::string& tag, uint32_t du
     // This space intentionally left blank.
 }
 
-void AttributeIntervention::Apply(uint32_t step)
+void AttributeIntervention::Apply(uint32_t step, Configuration& config, SimulationState& state)
 {
     // TBD
     printf("Applying AttributeIntervention '%s' at time %d\n", tag.c_str(), step);
@@ -317,7 +319,7 @@ public:
     NeighborIntervention(const std::string& tag, uint32_t duration, float factor, const std::string& attribute = "", uint32_t attribute_value = 0);
     virtual ~NeighborIntervention() {}
 
-    virtual void Apply(uint32_t step);
+    virtual void Apply(uint32_t step, Configuration& config, SimulationState& state) override;
 };
 
 NeighborIntervention::NeighborIntervention(const std::string& tag, uint32_t duration, float factor, const std::string& attribute, uint32_t attribute_value)
@@ -326,10 +328,11 @@ NeighborIntervention::NeighborIntervention(const std::string& tag, uint32_t dura
     // This space intentionally left blank.
 }
 
-void NeighborIntervention::Apply(uint32_t step)
+void NeighborIntervention::Apply(uint32_t step, Configuration& config, SimulationState& state)
 {
     // TBD
     printf("Applying NeighborIntervention '%s' at time %d\n", tag.c_str(), step);
+    neighbor_intervention(step, config, state, factor);
 }
 
 class NodeMatchingIntervention : public BaseIntervention
@@ -338,7 +341,7 @@ public:
     NodeMatchingIntervention(const std::string& tag, uint32_t duration, float factor, const std::string& attribute = "", uint32_t attribute_value = 0);
     virtual ~NodeMatchingIntervention() {}
 
-    virtual void Apply(uint32_t step);
+    virtual void Apply(uint32_t step, Configuration& config, SimulationState& state) override;
 };
 
 NodeMatchingIntervention::NodeMatchingIntervention(const std::string& tag, uint32_t duration, float factor, const std::string& attribute, uint32_t attribute_value)
@@ -347,7 +350,7 @@ NodeMatchingIntervention::NodeMatchingIntervention(const std::string& tag, uint3
     // This space intentionally left blank.
 }
 
-void NodeMatchingIntervention::Apply(uint32_t step)
+void NodeMatchingIntervention::Apply(uint32_t step, Configuration& config, SimulationState& state)
 {
     // TBD
     printf("Applying NodeMatchingIntervention '%s' at time %d\n", tag.c_str(), step);
@@ -359,7 +362,7 @@ public:
     NeighborMatchingIntervention(const std::string& tag, uint32_t duration, float factor, const std::string& attribute = "", uint32_t attribute_value = 0);
     virtual ~NeighborMatchingIntervention() {}
 
-    virtual void Apply(uint32_t step);
+    virtual void Apply(uint32_t step, Configuration& config, SimulationState& state) override;
 };
 
 NeighborMatchingIntervention::NeighborMatchingIntervention(const std::string& tag, uint32_t duration, float factor, const std::string& attribute, uint32_t attribute_value)
@@ -368,7 +371,7 @@ NeighborMatchingIntervention::NeighborMatchingIntervention(const std::string& ta
     // This space intentionally left blank.
 }
 
-void NeighborMatchingIntervention::Apply(uint32_t step)
+void NeighborMatchingIntervention::Apply(uint32_t step, Configuration& config, SimulationState& state)
 {
     // TBD
     printf("Applying NeighborMatchingIntervention '%s' at time %d\n", tag.c_str(), step);

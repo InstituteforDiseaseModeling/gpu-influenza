@@ -151,7 +151,7 @@ int main(int argc, const char* argv[])
             CheckReturn(cudaDeviceSynchronize());
             CheckReturn(cudaGetLastError());
 
-            process_interventions(step, state.counters->infected_currently);
+            process_interventions(step, config, state);
 
             extinction_duration = 0;
 
@@ -182,7 +182,7 @@ int main(int argc, const char* argv[])
         else
         {
             ++extinction_duration;
-            if(extinction_duration > config.reseed_time)
+            if ( extinction_duration > config.reseed_time )
             {
                 std::cout << "No remaining exposed or infected for " << extinction_duration << " days at time step " << step << '.' << std::endl;
                 break;
