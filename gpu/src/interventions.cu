@@ -12,83 +12,45 @@
 #include "flu-main.h"
 #include "interventions.h"
 
-#include <csv/reader.hpp>
+#define CSV_IO_NO_THREAD
+#include "csv.h"
 
 struct IIntervention
 {
 // public:
+    IIntervention() {}
     virtual ~IIntervention() {}
     virtual void Apply(uint32_t time_step) = 0;
 };
 
-struct IScheduledIntervention : public IIntervention
+struct BaseIntervention : IIntervention
 {
-    IScheduledIntervention(uint32_t time) : scheduled_time( time ) {}
-    virtual uint32_t GetScheduledTime() { return scheduled_time; }
+//public:
+    BaseIntervention(const std::string& tag, uint32_t duration, float factor, const std::string& attribute = "", uint32_t attribute_value = 0);
 
 protected:
-    uint32_t scheduled_time;
+    std::string tag;
+    uint32_t duration;
+    float factor;
+    std::string attribute;
+    uint32_t attribute_value;
 };
 
-struct ITriggeredIntervention : public IIntervention
+BaseIntervention::BaseIntervention(const std::string& tag, uint32_t duration, float factor, const std::string& attribute, uint32_t attribute_value)
+    : tag(tag)
+    , duration(duration)
+    , factor(factor)
+    , attribute(attribute)
+    , attribute_value(attribute_value)
 {
-    ITriggeredIntervention(uint32_t threshold) : trigger_value( threshold ) {}
-    virtual uint32_t GetTriggerValue() { return trigger_value; }
-
-protected:
-    uint32_t trigger_value;
-};
-
-class DummyScheduled : public IScheduledIntervention
-{
-public:
-    DummyScheduled(uint32_t time) : IScheduledIntervention(time) {};
-    virtual ~DummyScheduled() {}
-
-    virtual void Apply(uint32_t time_step) override;
-};
-
-void DummyScheduled::Apply(uint32_t time_step)
-{
-    printf("Applying scheduled intervention at time %d (scheduled for %d).\n", time_step, scheduled_time);
+    // This space intentionally left blank.
 }
 
-class DummyTriggered : public ITriggeredIntervention
-{
-public:
-    DummyTriggered(uint32_t threshold) : ITriggeredIntervention(threshold) {};
-    virtual ~DummyTriggered() {}
-
-    virtual void Apply(uint32_t time_step) override;
-};
-
-void DummyTriggered::Apply(uint32_t time_step)
-{
-    printf("Applying triggered intervention at time %d (threshold %d).\n", time_step, trigger_value);
-}
-
-std::map<uint32_t, std::vector<IScheduledIntervention*>> scheduled_interventions;
-std::vector<ITriggeredIntervention*> triggered_interventions;
-
-// Testing/debugging
-static bool initialized = false;
-
-static void initialize(void)
-{
-    scheduled_interventions[13].push_back(new DummyScheduled(13));
-    scheduled_interventions[42].push_back(new DummyScheduled(42));
-    triggered_interventions.push_back(new DummyTriggered(31));
-    triggered_interventions.push_back(new DummyTriggered(314));
-    initialized = true;
-
-    return;
-}
+static std::map<uint32_t, std::vector<IIntervention*>> scheduled_interventions;
+static std::vector<std::pair<uint32_t, IIntervention*>> triggered_interventions;
 
 void process_interventions(uint32_t step, uint32_t infectious_count)
 {
-    // Testing/debugging
-    if (!initialized) initialize();
-
     printf("Processing interventions for time step %d (%d currently infected/infectious).\n", step, infectious_count);
 
     /*
@@ -120,10 +82,10 @@ void process_interventions(uint32_t step, uint32_t infectious_count)
 
     for (size_t i = 0; i < triggered_interventions.size(); /**/)
     {
-        auto intervention = triggered_interventions[i];
-        if ( infectious_count >= intervention->GetTriggerValue() )
+        auto& entry = triggered_interventions[i];
+        if ( infectious_count >= entry.first )
         {
-            intervention->Apply(step);
+            entry.second->Apply(step);
             // Replace the current intervention with the last one in the vector...
             triggered_interventions[i] = triggered_interventions[triggered_interventions.size()-1];
             triggered_interventions.pop_back(); // Pop/delete the last intervention off the vector
@@ -253,7 +215,14 @@ __global__ void node_matching_intervention_kernel(
 
 void node_matching_intervention(uint32_t step, SimulationState& state, uint32_t attribute, uint16_t duration, CON_TYPE factor)
 {
-    node_matching_intervention<<<grid, block>>>();
+    uint32_t blockX = BLOCK_SIZE;
+    dim3 block(blockX, 1, 1);
+    uint32_t gridX = max((state.counters->infected_currently + block.x - 1) / block.x, 1);
+    dim3 grid(gridX, 1, 1);
+
+    uint32_t* infected_queue = ((step & 1) ? state.queue_a_inf : state.queue_b_inf);
+
+    node_matching_intervention_kernel<<<grid, block>>>();
 }
 
 /*
@@ -321,48 +290,178 @@ void neighbor_matching_intervention(uint32_t step, SimulationState& state, CON_T
     );
 }
 
-void load_interventsion(std::string& filename)
+class AttributeIntervention : public BaseIntervention
 {
-    enum
+public:
+    AttributeIntervention(const std::string& tag, uint32_t duration, float factor, const std::string& attribute = "", uint32_t attribute_value = 0);
+    virtual ~AttributeIntervention() {}
+
+    virtual void Apply(uint32_t step);
+};
+
+AttributeIntervention::AttributeIntervention(const std::string& tag, uint32_t duration, float factor, const std::string& attribute, uint32_t attribute_value)
+    : BaseIntervention(tag, duration, factor, attribute, attribute_value)
+{
+    // This space intentionally left blank.
+}
+
+void AttributeIntervention::Apply(uint32_t step)
+{
+    // TBD
+    printf("Applying AttributeIntervention '%s' at time %d\n", tag.c_str(), step);
+}
+
+class NeighborIntervention : public BaseIntervention
+{
+public:
+    NeighborIntervention(const std::string& tag, uint32_t duration, float factor, const std::string& attribute = "", uint32_t attribute_value = 0);
+    virtual ~NeighborIntervention() {}
+
+    virtual void Apply(uint32_t step);
+};
+
+NeighborIntervention::NeighborIntervention(const std::string& tag, uint32_t duration, float factor, const std::string& attribute, uint32_t attribute_value)
+    : BaseIntervention(tag, duration, factor, attribute, attribute_value)
+{
+    // This space intentionally left blank.
+}
+
+void NeighborIntervention::Apply(uint32_t step)
+{
+    // TBD
+    printf("Applying NeighborIntervention '%s' at time %d\n", tag.c_str(), step);
+}
+
+class NodeMatchingIntervention : public BaseIntervention
+{
+public:
+    NodeMatchingIntervention(const std::string& tag, uint32_t duration, float factor, const std::string& attribute = "", uint32_t attribute_value = 0);
+    virtual ~NodeMatchingIntervention() {}
+
+    virtual void Apply(uint32_t step);
+};
+
+NodeMatchingIntervention::NodeMatchingIntervention(const std::string& tag, uint32_t duration, float factor, const std::string& attribute, uint32_t attribute_value)
+    : BaseIntervention(tag, duration, factor, attribute, attribute_value)
+{
+    // This space intentionally left blank.
+}
+
+void NodeMatchingIntervention::Apply(uint32_t step)
+{
+    // TBD
+    printf("Applying NodeMatchingIntervention '%s' at time %d\n", tag.c_str(), step);
+}
+
+class NeighborMatchingIntervention : public BaseIntervention
+{
+public:
+    NeighborMatchingIntervention(const std::string& tag, uint32_t duration, float factor, const std::string& attribute = "", uint32_t attribute_value = 0);
+    virtual ~NeighborMatchingIntervention() {}
+
+    virtual void Apply(uint32_t step);
+};
+
+NeighborMatchingIntervention::NeighborMatchingIntervention(const std::string& tag, uint32_t duration, float factor, const std::string& attribute, uint32_t attribute_value)
+    : BaseIntervention(tag, duration, factor, attribute, attribute_value)
+{
+    // This space intentionally left blank.
+}
+
+void NeighborMatchingIntervention::Apply(uint32_t step)
+{
+    // TBD
+    printf("Applying NeighborMatchingIntervention '%s' at time %d\n", tag.c_str(), step);
+}
+
+enum
+{
+    ATTRIBUTE        = 1,
+    NEIGHBOR         = 2,
+    NODEMATCHING     = 3,
+    NEIGHBORMATCHING = 4
+};
+
+#define TIME    ("TIME")
+#define COUNT   ("COUNT")
+
+void AddIntervention( IIntervention* intervention, std::string& trigger, uint32_t trigger_value )
+{
+    if ( trigger == TIME )
     {
-        ATTRIBUTE        = 1,
-        NEIGHBOR         = 2,
-        NODEMATCHING     = 3,
-        NEIGHBORMATCHING = 4
+        scheduled_interventions[trigger_value].push_back( intervention );
     }
-    std::map<std::string, uint32_t> map({{"ATTRIBUTE", ATTRIBUTE}, {"NEIGHBOR", NEIGHBOR}, {NODEMATCHING}})
-
-    csv::Reader reader;
-    reader.read(filename);
-    auto rows = reader.rows();
-    for (auto& row : rows)
+    else if ( trigger == COUNT )
     {
-        auto tag                 =               row["tag"];
-        uint32_t type            = uint32_t(atoi(row["type"]));
-        auto trigger             =               row["trigger"];
-        uint32_t trigger_value   = uint32_t(atoi(row["trigger_value"]));
-        uint32_t duration        = uint32_t(atoi(row["duration"]));
-        float factor             =          atof(row["factor"]);
-        auto attribute           =               row["attribute"];
-        uint16_t attribute_value = uint16_t(atoi(row["attribute_value"]));
+        triggered_interventions.push_back( std::pair<uint32_t, IIntervention*>( trigger_value, intervention ) );
+    }
+    else
+    {
+        fprintf( stderr, "Invalid trigger type, '%s', passed to %s.\n", trigger.c_str(), __FUNCTION__ );
+        exit( 1 );
+    }
+}
 
-        switch (map.at(type))
+void load_interventions(const std::string filename)
+{
+    io::CSVReader<8> reader(filename);
+    reader.read_header(io::ignore_extra_column, "tag", "type", "trigger", "trigger_value", "duration", "factor", "attribute", "attribute_value");
+    std::string tag;
+    uint32_t type;
+    std::string trigger;
+    uint32_t trigger_value;
+    uint32_t duration;
+    float factor;
+    std::string attribute;
+    uint16_t attribute_value;
+    bool error = false;
+    while(reader.read_row(tag, type, trigger, trigger_value, duration, factor, attribute, attribute_value))
+    {
+        if ( (trigger != TIME) and (trigger != COUNT) )
+        {
+            fprintf( stderr, "Invalid trigger '%s' in intervention file '%s'.\n", trigger.c_str(), filename.c_str() );
+            error = true;
+            continue;
+        }
+
+        IIntervention* intervention(nullptr);
+
+        switch (type)
         {
             case ATTRIBUTE:
+                printf("Parsed attribute intervention (%s, %s, %d, %d, %f)\n", tag.c_str(), trigger.c_str(), trigger_value, duration, factor);
+                intervention = new AttributeIntervention(tag, duration, factor, attribute, attribute_value);
                 break;
 
             case NEIGHBOR:
+                printf("Parsed neighbor intervention (%s, %s, %d, %d, %f)\n", tag.c_str(), trigger.c_str(), trigger_value, duration, factor);
+                intervention = new NeighborIntervention(tag, duration, factor, attribute, attribute_value);
                 break;
 
             case NODEMATCHING:
+                printf("Parsed node matching intervention (%s, %s, %d, %d, %f)\n", tag.c_str(), trigger.c_str(), trigger_value, duration, factor);
+                intervention = new NodeMatchingIntervention(tag, duration, factor, attribute, attribute_value);
                 break;
 
             case NEIGHBORMATCHING:
+                printf("Parsed neighbor matching intervention (%s, %s, %d, %d, %f)\n", tag.c_str(), trigger.c_str(), trigger_value, duration, factor);
+                intervention = new NeighborMatchingIntervention(tag, duration, factor, attribute, attribute_value);
                 break;
 
             default:
-                fprintf(stderr, "Unknown intervention type '%s' in campaign file '%s'.\n", type, filename.c_str());
-                exit(1);
+                fprintf(stderr, "Unknown intervention type '%d' in campaign file '%s'.\n", type, filename.c_str());
+                error = true;
+                break;
         }
+
+        if ( !error )
+        {
+            AddIntervention( intervention, trigger, trigger_value );
+        }
+    }
+
+    if ( error )
+    {
+        exit(1);
     }
 }

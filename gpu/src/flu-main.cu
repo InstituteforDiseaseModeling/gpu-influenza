@@ -83,6 +83,8 @@ int main(int argc, const char* argv[])
     TIMER_TYPE* previous_timers_exp;
     TIMER_TYPE* current_timers_exp;
 
+    load_interventions("gpuflu/campaign.csv");
+
     auto start = clock();
     uint32_t extinction_duration = 0;
     using param_t = std::poisson_distribution<int32_t>::param_type;

@@ -141,13 +141,13 @@ class CampaignTest(unittest.TestCase):
     def test_campaign(self):
 
         c = Campaign()
-        a = AttributeIntervention("attribute_iv", "TIME", 180, 30, 0.25, "household", 2020)
+        a = AttributeIntervention("attribute_iv", "TIME", 30, 30, 0.25, "household", 2020)
         c += a
         n = NeighborIntervention("neighbor_iv", "COUNT", 100, 14, 0.125)
         c += n
-        node = NodeMatchingIntervention("nodematch_iv", "TIME", 90, 31, 0.125, "household")
+        node = NodeMatchingIntervention("nodematch_iv", "TIME", 60, 31, 0.125, "household")
         c += node
-        neighbor_match = NeighborMatchingIntervention("neighbormatch_iv", "COUNT", 100, 60, 0.125, "school", 13)
+        neighbor_match = NeighborMatchingIntervention("neighbormatch_iv", "COUNT", 128, 60, 0.125, "school", 13)
         c += neighbor_match
         c.write_file("campaign.csv")
 
