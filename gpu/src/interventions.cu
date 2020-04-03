@@ -21,12 +21,14 @@ struct IIntervention
     IIntervention() {}
     virtual ~IIntervention() {}
     virtual void Apply(uint32_t time_step, Configuration& config, SimulationState& state) = 0;
+    virtual uint32_t GetDuration( void ) = 0;
 };
 
 struct BaseIntervention : IIntervention
 {
 //public:
     BaseIntervention(const std::string& tag, uint32_t duration, float factor, const std::string& attribute = "", uint32_t attribute_value = 0);
+    uint32_t GetDuration( void ) { return duration; }
 
 protected:
     std::string tag;
@@ -59,7 +61,7 @@ void process_interventions(uint32_t step, Configuration& config, SimulationState
         Read a[j], the attenuation for this intervention
         Decrement remaining_time for each active intervention and node
         For each active intervention on each node k that reaches 0:
-            beta_modifier[k] = beta_modifier[k] / (1 – a[j])
+            susceptibility[k] = susceptibility[k] / (1 – a[j])
     */
     /*
     [trigger new interventions] for each intervention:
@@ -86,10 +88,13 @@ void process_interventions(uint32_t step, Configuration& config, SimulationState
         auto& entry = triggered_interventions[i];
         if ( infectious_count >= entry.first )
         {
-            entry.second->Apply(step, config, state);
+            IIntervention* intervention = entry.second;
+            intervention->Apply(step, config, state);
+
             // Replace the current intervention with the last one in the vector...
             triggered_interventions[i] = triggered_interventions[triggered_interventions.size()-1];
             triggered_interventions.pop_back(); // Pop/delete the last intervention off the vector
+
             // Do not increment i, we (may have) just moved the last intervention to this slot.
         }
         else
@@ -104,7 +109,7 @@ attribute_intervention(): the intervention event is applied to all nodes that ma
     read target_attribute, target_value, duration, and attenuation_factor
     for each node k in network:
         if attribute[k][target_attribute] == target_value:
-            beta_modifier[k] = beta_modifier[k] * attenuation_factor
+            susceptibility[k] = susceptibility[k] * attenuation_factor
             add (duration, attenuation_factor) to beta_modifier_tracker[k] vector.
 */
 
@@ -112,7 +117,7 @@ __global__ void attribute_intervention_kernel(
     uint32_t population_size,
     uint16_t* attributes,
     uint16_t target_value,
-    CON_TYPE* beta_modifier,
+    CON_TYPE* susceptibility,
     float factor)
 {
     uint32_t individual_index = (blockDim.x * blockIdx.x) + threadIdx.x;
@@ -120,26 +125,21 @@ __global__ void attribute_intervention_kernel(
     {
         if ( attributes[individual_index] == target_value )
         {
-            beta_modifier[individual_index] *= factor;
+            susceptibility[individual_index] *= factor;
         }
     }
 }
 
-void attribute_intervention(uint32_t step, SimulationState& state, uint32_t attribute, uint16_t target_value, float attenuation)
+void attribute_intervention(uint32_t step, SimulationState& state, uint32_t attribute_name, uint16_t target_value, float attenuation)
 {
     uint32_t blockX = BLOCK_SIZE;
     dim3 block(blockX, 1, 1);
     uint32_t gridX = (state.population_size + block.x - 1) / block.x;
     dim3 grid(gridX, 1, 1);
 
-    uint16_t* attributes(nullptr);
-    switch (attribute)
-    {
-        default:
-            break;
-    }
+    ATTR_TYPE* attributes(state.attributes.at(attribute_name));
 
-    attribute_intervention_kernel<<<grid, block>>>( state.population_size, attributes, target_value, state.beta_factor, attenuation);
+    attribute_intervention_kernel<<<grid, block>>>( state.population_size, attributes, target_value, state.susceptibility, attenuation);
 
     CheckReturn(cudaDeviceSynchronize());
     CheckReturn(cudaGetLastError());
@@ -155,7 +155,7 @@ neighbor_intervention(): The Intervention event is applied to all neighbors of e
             implement_intervention[j] = 1
     for each node k in implement_intervention:
         if implement_intervention[k] == 1 then:
-            beta_modifier[k] = beta_modifier[k] * attenuation_factor
+            susceptibility[k] = susceptibility[k] * attenuation_factor
             add (duration, attenuation_factor) to beta_modifier_tracker[k] vector.
 */
 
@@ -186,7 +186,7 @@ void neighbor_intervention(uint32_t step, Configuration& config, SimulationState
     uint32_t gridX = (state.population_size + block.x - 1) / block.x;
     dim3 grid(gridX, 1, 1);
 
-    IND_TYPE* queue = ((step & 1) ? state.queue_a_inf : state.queue_b_inf);
+    IND_TYPE* queue = ((step & 1) ? state.infected_individuals_odd_time_steps : state.infected_individuals_even_time_steps);
     neighbor_intervention_kernel<<<grid, block>>>( state.counters->infected_currently, queue, state.connect_m, config.max_connections, factor );
 
     CheckReturn(cudaDeviceSynchronize());
@@ -204,7 +204,8 @@ for each infectious node k in network:
         add attribute[target_attribute] to attribute_values
 for each node k in network:
     if attribute[k][target_attribute] is in attribute_values:
-        beta_modifier[k] = beta_modifier[k] * attenuation_factor
+        // susceptibility[k] = susceptibility[k] * attenuation_factor
+        connection_weights *= attenuation_factor
         add (duration, attenuation_factor) to beta_modifier_tracker[k] vector.
 */
 
@@ -222,7 +223,7 @@ void node_matching_intervention(uint32_t step, SimulationState& state, uint32_t 
     uint32_t gridX = max((state.counters->infected_currently + block.x - 1) / block.x, 1);
     dim3 grid(gridX, 1, 1);
 
-    // uint32_t* infected_queue = ((step & 1) ? state.queue_a_inf : state.queue_b_inf);
+    // uint32_t* infected_queue = ((step & 1) ? state.infected_individuals_odd_time_steps : state.infected_individuals_even_time_steps);
 
     node_matching_intervention_kernel<<<grid, block>>>();
 }
@@ -240,7 +241,7 @@ for each infectious node k in network:
             implement_intervention[j] = 1
 for each node k in implement_intervention:
     if implement_intervention[k] == 1 then:
-        beta_modifier[k] = beta_modifier[k] * attenuation_factor
+        susceptibility[k] = susceptibility[k] * attenuation_factor
         add (duration, attenuation_factor) to beta_modifier_tracker[k] vector.
 */
 
@@ -250,7 +251,7 @@ __global__ void neighbor_matching_intervention_kernel(
     ATTR_TYPE* attributes,
     IND_TYPE* network_m,
     uint32_t connection_count,
-    CON_TYPE* beta_modifiers,
+    CON_TYPE* susceptibility,
     CON_TYPE factor
 )
 {
@@ -265,21 +266,21 @@ __global__ void neighbor_matching_intervention_kernel(
             IND_TYPE target_individual = neighbors[neighbor_index];
             if ( attributes[target_individual] == attribute )
             {
-                beta_modifiers[target_individual] *= factor;
+                susceptibility[target_individual] *= factor;
             }
         }
     }
 }
 
-void neighbor_matching_intervention(uint32_t step, SimulationState& state, CON_TYPE factor)
+void neighbor_matching_intervention(uint32_t step, SimulationState& state, const std::string& attribute_name, CON_TYPE factor)
 {
     uint32_t blockX = BLOCK_SIZE;
     dim3 block(blockX, 1, 1);
     uint32_t gridX = max((state.counters->infected_currently + block.x - 1) / block.x, 1);
     dim3 grid(gridX, 1, 1);
 
-    uint32_t* infected_queue = ((step & 1) ? state.queue_a_inf : state.queue_b_inf);
-    ATTR_TYPE* attributes(nullptr);
+    uint32_t* infected_queue = ((step & 1) ? state.infected_individuals_odd_time_steps : state.infected_individuals_even_time_steps);
+    ATTR_TYPE* attributes(state.attributes.at(attribute_name));
 
     neighbor_matching_intervention_kernel<<<grid, block>>>(
         state.counters->infected_currently,
@@ -287,7 +288,7 @@ void neighbor_matching_intervention(uint32_t step, SimulationState& state, CON_T
         attributes,
         state.network_m,
         state.max_connections,
-        state.beta_factor,
+        state.susceptibility,
         factor
     );
 }
@@ -373,8 +374,8 @@ NeighborMatchingIntervention::NeighborMatchingIntervention(const std::string& ta
 
 void NeighborMatchingIntervention::Apply(uint32_t step, Configuration& config, SimulationState& state)
 {
-    // TBD
     printf("Applying NeighborMatchingIntervention '%s' at time %d\n", tag.c_str(), step);
+    neighbor_matching_intervention(step, state, attribute, factor);
 }
 
 enum

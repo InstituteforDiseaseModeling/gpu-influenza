@@ -45,14 +45,14 @@ struct SimulationState {
     IND_TYPE*       network_m;
     CON_TYPE*       connect_m;
     curandState*    prngStates;
-    IND_TYPE*       queue_a_exp;
-    IND_TYPE*       queue_b_exp;
-    IND_TYPE*       queue_a_inf;
-    IND_TYPE*       queue_b_inf;
-    TIMER_TYPE*     timers_a_exp;
-    TIMER_TYPE*     timers_b_exp;
-    TIMER_TYPE*     timers_a_inf;
-    TIMER_TYPE*     timers_b_inf;
+    IND_TYPE*       exposed_individuals_odd_time_steps;
+    IND_TYPE*       exposed_individuals_even_time_steps;
+    IND_TYPE*       infected_individuals_odd_time_steps;
+    IND_TYPE*       infected_individuals_even_time_steps;
+    TIMER_TYPE*     exposure_timers_odd_time_steps;
+    TIMER_TYPE*     exposure_timers_even_time_steps;
+    TIMER_TYPE*     infected_timers_odd_time_steps;
+    TIMER_TYPE*     infected_timers_even_time_steps;
     INF_TYPE*       status_v;
     TxEvent*        tx_events;
     Counters*       counters;
@@ -65,14 +65,14 @@ struct SimulationState {
 |network_m|pointer to the "matrix" of edges - see below|
 |connect_m|pointer to the "matrix" of connection weights - see below|
 |prngStates|pointer to ```population_size``` ```curandState``` structs, one per agent|
-|queue_a_exp|pointer to up to ```population_size``` entries of exposed agent indices, double buffered with ```queue_b_exp```|
-|queue_b_exp|pointer to up to ```population_size``` entries of exposed agent indices, double buffered with ```queue_a_exp```|
-|queue_a_inf|pointer to up to ```population_size``` entries of infectious agent indices, double buffered with ```queue_b_inf```|
-|queue_b_inf|pointer to up to ```population_size``` entries of infectious agent indices, double buffered with ```queue_a_inf```|
-|timers_a_exp|pointer to up to ```population_size``` exposed (latent) timers, one for each entry of ```queue_a_exp```, double buffered with ```timers_b_exp```|
-|timers_b_exp|pointer to up to ```population_size``` exposed (latent) timers, one for each entry of ```queue_b_exp```, double buffered with ```timers_a_exp```|
-|timers_a_inf|pointer to up to ```population_size``` infection timers, one for each entry of ```queue_a_inf```, double buffered with ```timers_b_inf```|
-|timers_b_inf|pointer to up to ```population_size``` infection timers, one for each entry of ```queue_b_inf```, double buffered with ```timers_a_inf```|
+|exposed_individuals_odd_time_steps|pointer to up to ```population_size``` entries of exposed agent indices, double buffered with ```exposed_individuals_even_time_steps```|
+|exposed_individuals_even_time_steps|pointer to up to ```population_size``` entries of exposed agent indices, double buffered with ```exposed_individuals_odd_time_steps```|
+|infected_individuals_odd_time_steps|pointer to up to ```population_size``` entries of infectious agent indices, double buffered with ```infected_individuals_even_time_steps```|
+|infected_individuals_even_time_steps|pointer to up to ```population_size``` entries of infectious agent indices, double buffered with ```infected_individuals_odd_time_steps```|
+|exposure_timers_odd_time_steps|pointer to up to ```population_size``` exposed (latent) timers, one for each entry of ```exposed_individuals_odd_time_steps```, double buffered with ```exposure_timers_even_time_steps```|
+|exposure_timers_even_time_steps|pointer to up to ```population_size``` exposed (latent) timers, one for each entry of ```exposed_individuals_even_time_steps```, double buffered with ```exposure_timers_odd_time_steps```|
+|infected_timers_odd_time_steps|pointer to up to ```population_size``` infection timers, one for each entry of ```infected_individuals_odd_time_steps```, double buffered with ```infected_timers_even_time_steps```|
+|infected_timers_even_time_steps|pointer to up to ```population_size``` infection timers, one for each entry of ```infected_individuals_even_time_steps```, double buffered with ```infected_timers_odd_time_steps```|
 |status_v|pointer to ```population_size``` entries of "status" indicating the state (susceptible: 0, exposed: 1, infectious: 2, recovered: 3) of i<sup>th</sup> agent|
 |tx_events|pointer to population_size entries of ```TxEvent``` records|
 |counters|pointer to ```Counters``` struct|

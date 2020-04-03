@@ -1,7 +1,6 @@
 #pragma once
 
-#include <cuda_runtime.h>
-#include <curand_kernel.h>
+#include <curand_kernel.h>  // #includes curand.h which #includes cuda_runtime.h
 
 // Helper functions for CUDA runtime error checking
 

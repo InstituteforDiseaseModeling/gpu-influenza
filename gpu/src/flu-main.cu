@@ -1,4 +1,6 @@
-#include <cuda_runtime.h>
+/*
+** copyright banner
+*/
 
 #include <chrono>
 #include <cstdio>
@@ -13,6 +15,7 @@
 #include "flu-kernel.h"
 #include "flu-main.h"
 
+#include "attributes.h"
 #include "interventions.h"
 
 /*
@@ -66,23 +69,24 @@ int main(int argc, const char* argv[])
     uint32_t vac_start = (config.vac_num > 0) ? config.vac_times[0] : config.simulation_steps;
 
     DisplayNetwork( state );
-    DisplayInfected( state.queue_a_exp, state.timers_a_exp, state.counters->exposed_currently,
-                     state.queue_a_inf, state.timers_a_inf, state.counters->infected_currently );
+    DisplayInfected( state.exposed_individuals_odd_time_steps, state.exposure_timers_odd_time_steps, state.counters->exposed_currently,
+                     state.infected_individuals_odd_time_steps, state.infected_timers_odd_time_steps, state.counters->infected_currently );
 
     uint32_t blockX = BLOCK_SIZE;
     dim3 block(blockX, 1, 1);
     uint32_t gridX = (config.population_size + block.x - 1) / block.x;
     dim3 grid(gridX, 1, 1);
 
-    IND_TYPE*   previously_infected;
-    IND_TYPE*   currently_infected;
-    IND_TYPE*   previously_exposed;
-    IND_TYPE*   currently_exposed;
-    TIMER_TYPE* previous_timers_inf;
-    TIMER_TYPE* current_timers_inf;
-    TIMER_TYPE* previous_timers_exp;
-    TIMER_TYPE* current_timers_exp;
+    IND_TYPE*   exposed_last_time_step;
+    IND_TYPE*   exposed_this_time_step;
+    IND_TYPE*   infected_last_time_step;
+    IND_TYPE*   infected_this_time_step;
+    TIMER_TYPE* exposure_timers_last_time_step;
+    TIMER_TYPE* exposure_timers_this_time_step;
+    TIMER_TYPE* infected_timers_last_time_step;
+    TIMER_TYPE* infected_timers_this_time_step;
 
+    load_attributes( "attributes.txt", state );
     load_interventions("gpuflu/campaign.csv");
 
     auto start = clock();
@@ -96,14 +100,14 @@ int main(int argc, const char* argv[])
         state.counters->exposed_previously = state.counters->exposed_currently;
         state.counters->exposed_currently = 0;
 
-        previously_exposed = ((step & 1) ? state.queue_b_exp : state.queue_a_exp);
-        currently_exposed  = ((step & 1) ? state.queue_a_exp : state.queue_b_exp);
-        previous_timers_exp = ((step & 1) ? state.timers_b_exp : state.timers_a_exp);
-        current_timers_exp  = ((step & 1) ? state.timers_a_exp : state.timers_b_exp);
-        previously_infected = ((step & 1) ? state.queue_b_inf : state.queue_a_inf);
-        currently_infected  = ((step & 1) ? state.queue_a_inf : state.queue_b_inf);
-        previous_timers_inf = ((step & 1) ? state.timers_b_inf : state.timers_a_inf);
-        current_timers_inf  = ((step & 1) ? state.timers_a_inf : state.timers_b_inf);
+        exposed_last_time_step         = ((step & 1) ? state.exposed_individuals_even_time_steps : state.exposed_individuals_odd_time_steps);
+        exposed_this_time_step         = ((step & 1) ? state.exposed_individuals_odd_time_steps  : state.exposed_individuals_even_time_steps);
+        exposure_timers_last_time_step = ((step & 1) ? state.exposure_timers_even_time_steps : state.exposure_timers_odd_time_steps);
+        exposure_timers_this_time_step = ((step & 1) ? state.exposure_timers_odd_time_steps  : state.exposure_timers_even_time_steps);
+        infected_last_time_step        = ((step & 1) ? state.infected_individuals_even_time_steps : state.infected_individuals_odd_time_steps);
+        infected_this_time_step        = ((step & 1) ? state.infected_individuals_odd_time_steps  : state.infected_individuals_even_time_steps);
+        infected_timers_last_time_step = ((step & 1) ? state.infected_timers_even_time_steps : state.infected_timers_odd_time_steps);
+        infected_timers_this_time_step = ((step & 1) ? state.infected_timers_odd_time_steps  : state.infected_timers_even_time_steps);
 
         // with potential concurrent kernels I may need to change this?
         if ( (state.counters->infected_previously + state.counters->exposed_previously) > 0 )
@@ -113,10 +117,10 @@ int main(int argc, const char* argv[])
             flu_exposed<<<grid, block>>>(
                 step,
                 config.infectious_duration, config.infectious_duration_std,
-                previously_exposed, previous_timers_exp, state.counters->exposed_previously,
+                exposed_last_time_step, exposure_timers_last_time_step, state.counters->exposed_previously,
                 state.status_v,
-                currently_exposed, current_timers_exp, &state.counters->exposed_currently,
-                currently_infected, current_timers_inf, &state.counters->infected_currently,
+                exposed_this_time_step, exposure_timers_this_time_step, &state.counters->exposed_currently,
+                infected_this_time_step, infected_timers_this_time_step, &state.counters->infected_currently,
                 state.tx_events,
                 state.prngStates
             );
@@ -127,11 +131,11 @@ int main(int argc, const char* argv[])
                 step,
                 state.population_size, state.max_connections,
                 config.exposed_duration, config.exposed_duration_std,
-                state.network_m, state.connect_m, state.beta_factor,
-                previously_infected, previous_timers_inf, state.counters->infected_previously,
+                state.network_m, state.connect_m, state.susceptibility,
+                infected_last_time_step, infected_timers_last_time_step, state.counters->infected_previously,
                 state.status_v,
-                currently_exposed, current_timers_exp, &state.counters->exposed_currently,
-                currently_infected, current_timers_inf, &state.counters->infected_currently,
+                exposed_this_time_step, exposure_timers_this_time_step, &state.counters->exposed_currently,
+                infected_this_time_step, infected_timers_this_time_step, &state.counters->infected_currently,
                 &state.counters->transmissions, state.tx_events,
                 state.prngStates
             );
@@ -143,7 +147,7 @@ int main(int argc, const char* argv[])
                 step, state.population_size, &state.counters->importations,
                 config.import_duration, config.import_duration_std,
                 state.status_v,
-                currently_exposed, current_timers_exp, &state.counters->exposed_currently,
+                exposed_this_time_step, exposure_timers_this_time_step, &state.counters->exposed_currently,
                 &state.counters->transmissions, state.tx_events,
                 state.prngStates
                 );
@@ -157,7 +161,7 @@ int main(int argc, const char* argv[])
 
             if (vac_start == step)
             {
-                flu_vaccinate<<<grid, block>>>(state.beta_factor, config.vac_effectiveness[vaccination],
+                flu_vaccinate<<<grid, block>>>(state.susceptibility, config.vac_effectiveness[vaccination],
                 config.vac_coverage[vaccination],
                 state.population_size, state.prngStates);
                 ++vaccination;
@@ -175,8 +179,8 @@ int main(int argc, const char* argv[])
 
             if ( !config.quiet )
             {
-                DisplayInfected( currently_exposed, current_timers_exp, state.counters->exposed_currently,
-                currently_infected, current_timers_inf, state.counters->infected_currently );
+                DisplayInfected( exposed_this_time_step, exposure_timers_this_time_step, state.counters->exposed_currently,
+                infected_this_time_step, infected_timers_this_time_step, state.counters->infected_currently );
             }
         }
         else
@@ -475,16 +479,16 @@ void AllocateState(SimulationState& state, Configuration& config)
 {
     CheckReturn(cudaMallocManaged(&state.network_m,      config.population_size * config.max_connections * sizeof(IND_TYPE)));
     CheckReturn(cudaMallocManaged(&state.connect_m,      config.population_size * config.max_connections * sizeof(CON_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.beta_factor,    config.population_size * sizeof(CON_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.susceptibility, config.population_size * sizeof(CON_TYPE)));
     CheckReturn(cudaMallocManaged(&state.prngStates,     config.population_size * sizeof(curandState)));
-    CheckReturn(cudaMallocManaged(&state.queue_a_exp,    config.population_size * sizeof(IND_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.queue_b_exp,    config.population_size * sizeof(IND_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.queue_a_inf,    config.population_size * sizeof(IND_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.queue_b_inf,    config.population_size * sizeof(IND_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.timers_a_exp,   config.population_size * sizeof(TIMER_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.timers_b_exp,   config.population_size * sizeof(TIMER_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.timers_a_inf,   config.population_size * sizeof(TIMER_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.timers_b_inf,   config.population_size * sizeof(TIMER_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.exposed_individuals_odd_time_steps,   config.population_size * sizeof(IND_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.exposed_individuals_even_time_steps,  config.population_size * sizeof(IND_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.infected_individuals_odd_time_steps,  config.population_size * sizeof(IND_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.infected_individuals_even_time_steps, config.population_size * sizeof(IND_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.exposure_timers_odd_time_steps,       config.population_size * sizeof(TIMER_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.exposure_timers_even_time_steps,      config.population_size * sizeof(TIMER_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.infected_timers_odd_time_steps,       config.population_size * sizeof(TIMER_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.infected_timers_even_time_steps,      config.population_size * sizeof(TIMER_TYPE)));
     CheckReturn(cudaMallocManaged(&state.status_v,       config.population_size * sizeof(INF_TYPE)));
     CheckReturn(cudaMallocManaged(&state.tx_events,      config.population_size * sizeof(TxEvent)));
     CheckReturn(cudaMallocManaged(&state.counters,       sizeof(Counters)));
@@ -628,13 +632,13 @@ void SeedInfections(SimulationState& state, Configuration& config, std::mt19937_
         {
             index = uniform_int(generator);
         } while (state.status_v[index] != 0);
-        state.queue_a_exp[j] = index;
-        state.timers_a_exp[j] = TIMER_TYPE(std::max(uint32_t(duration(generator)+0.5), uint32_t(1))); // At least one day of infectiousness, also the +0.5 is so the cast to int rounds correctly
+        state.exposed_individuals_odd_time_steps[j] = index;
+        state.exposure_timers_odd_time_steps[j] = TIMER_TYPE(std::max(uint32_t(duration(generator)+0.5), uint32_t(1))); // At least one day of infectiousness, also the +0.5 is so the cast to int rounds correctly
         state.status_v[index] = STATUS_EXPOSED;
 
         if (config.debug)
         {
-            std::cout << "Individual " << index << " placed at location " << j << " with exposure period " << uint32_t(state.timers_a_exp[j]) << std::endl;
+            std::cout << "Individual " << index << " placed at location " << j << " with exposure period " << uint32_t(state.exposure_timers_odd_time_steps[j]) << std::endl;
         }
     }
 
@@ -648,13 +652,13 @@ void SeedInfections(SimulationState& state, Configuration& config, std::mt19937_
         {
             index = uniform_int(generator);
         } while (state.status_v[index] != 0);
-        state.queue_a_inf[j] = index;
-        state.timers_a_inf[j] = TIMER_TYPE(std::max(uint32_t(duration(generator)+0.5), uint32_t(1))); // At least one day of infectiousness, also the +0.5 is so the cast to int rounds correctly
+        state.infected_individuals_odd_time_steps[j] = index;
+        state.infected_timers_odd_time_steps[j] = TIMER_TYPE(std::max(uint32_t(duration(generator)+0.5), uint32_t(1))); // At least one day of infectiousness, also the +0.5 is so the cast to int rounds correctly
         state.status_v[index] = STATUS_INFECTIOUS;
 
         if (config.debug)
         {
-            std::cout << "Individual " << index << " placed at location " << j << " with infectious period " << uint32_t(state.timers_a_inf[j]) << std::endl;
+            std::cout << "Individual " << index << " placed at location " << j << " with infectious period " << uint32_t(state.infected_timers_odd_time_steps[j]) << std::endl;
         }
     }
 
@@ -666,7 +670,7 @@ void ZeroVectors(SimulationState& state, uint32_t simulation_steps)
 {
     dim3 blocks(BLOCK_SIZE, 1, 1);
     dim3 grid((state.population_size + BLOCK_SIZE - 1) / BLOCK_SIZE, 1, 1);
-    initialize_vectors<<<grid, blocks>>>(state.status_v, state.beta_factor, state.tx_events, state.population_size);
+    initialize_vectors<<<grid, blocks>>>(state.status_v, state.susceptibility, state.tx_events, state.population_size);
     CheckReturn(cudaDeviceSynchronize());
     CheckReturn(cudaGetLastError());
 }

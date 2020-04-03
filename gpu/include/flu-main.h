@@ -1,9 +1,10 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <string>
 
-#include <curand.h>
+#include <curand_kernel.h>  // includes curand.h which includes cuda_runtime.h
 
 #include "sim-types.h"
 
@@ -107,36 +108,38 @@ struct SimulationState {
     uint32_t        max_connections;
     IND_TYPE*       network_m;
     CON_TYPE*       connect_m;
-    CON_TYPE*       beta_factor;
+    CON_TYPE*       susceptibility;
     curandState*    prngStates;
-    IND_TYPE*       queue_a_exp;
-    IND_TYPE*       queue_b_exp;
-    IND_TYPE*       queue_a_inf;
-    IND_TYPE*       queue_b_inf;
-    TIMER_TYPE*     timers_a_exp;
-    TIMER_TYPE*     timers_b_exp;
-    TIMER_TYPE*     timers_a_inf;
-    TIMER_TYPE*     timers_b_inf;
+    IND_TYPE*       exposed_individuals_odd_time_steps;
+    IND_TYPE*       exposed_individuals_even_time_steps;
+    IND_TYPE*       infected_individuals_odd_time_steps;
+    IND_TYPE*       infected_individuals_even_time_steps;
+    TIMER_TYPE*     exposure_timers_odd_time_steps;
+    TIMER_TYPE*     exposure_timers_even_time_steps;
+    TIMER_TYPE*     infected_timers_odd_time_steps;
+    TIMER_TYPE*     infected_timers_even_time_steps;
     INF_TYPE*       status_v;
     TxEvent*        tx_events;
     Counters*       counters;
+    std::map<std::string, ATTR_TYPE*> attributes;
 
     SimulationState()
         : population_size(0)
         , max_connections(0)
         , network_m(nullptr)
         , connect_m(nullptr)
-        , beta_factor(nullptr)
+        , susceptibility(nullptr)
         , prngStates(nullptr)
-        , queue_a_exp(nullptr)
-        , queue_b_exp(nullptr)
-        , queue_a_inf(nullptr)
-        , queue_b_inf(nullptr)
-        , timers_a_exp(nullptr)
-        , timers_b_exp(nullptr)
-        , timers_a_inf(nullptr)
-        , timers_b_inf(nullptr)
+        , exposed_individuals_odd_time_steps(nullptr)
+        , exposed_individuals_even_time_steps(nullptr)
+        , infected_individuals_odd_time_steps(nullptr)
+        , infected_individuals_even_time_steps(nullptr)
+        , exposure_timers_odd_time_steps(nullptr)
+        , exposure_timers_even_time_steps(nullptr)
+        , infected_timers_odd_time_steps(nullptr)
+        , infected_timers_even_time_steps(nullptr)
         , status_v(nullptr)
         , counters(nullptr)
+        , attributes()
     {}
 };
