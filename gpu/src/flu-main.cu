@@ -131,7 +131,8 @@ int main(int argc, const char* argv[])
                 step,
                 state.population_size, state.max_connections,
                 config.exposed_duration, config.exposed_duration_std,
-                state.network_m, state.connect_m, state.susceptibility,
+                state.network_m, state.connect_m,
+                state.rx_modifiers, state.tx_modifiers,
                 infected_last_time_step, infected_timers_last_time_step, state.counters->infected_previously,
                 state.status_v,
                 exposed_this_time_step, exposure_timers_this_time_step, &state.counters->exposed_currently,
@@ -161,7 +162,7 @@ int main(int argc, const char* argv[])
 
             if (vac_start == step)
             {
-                flu_vaccinate<<<grid, block>>>(state.susceptibility, config.vac_effectiveness[vaccination],
+                flu_vaccinate<<<grid, block>>>(state.rx_modifiers, config.vac_effectiveness[vaccination],
                 config.vac_coverage[vaccination],
                 state.population_size, state.prngStates);
                 ++vaccination;
@@ -477,10 +478,11 @@ void DisplayInfected( IND_TYPE* exposed_queue, TIMER_TYPE* exposed_timers, uint3
 
 void AllocateState(SimulationState& state, Configuration& config)
 {
-    CheckReturn(cudaMallocManaged(&state.network_m,      config.population_size * config.max_connections * sizeof(IND_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.connect_m,      config.population_size * config.max_connections * sizeof(CON_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.susceptibility, config.population_size * sizeof(CON_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.prngStates,     config.population_size * sizeof(curandState)));
+    CheckReturn(cudaMallocManaged(&state.network_m,                            config.population_size * config.max_connections * sizeof(IND_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.connect_m,                            config.population_size * config.max_connections * sizeof(CON_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.rx_modifiers,                          config.population_size * sizeof(CON_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.tx_modifiers,                          config.population_size * sizeof(CON_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.prngStates,                           config.population_size * sizeof(curandState)));
     CheckReturn(cudaMallocManaged(&state.exposed_individuals_odd_time_steps,   config.population_size * sizeof(IND_TYPE)));
     CheckReturn(cudaMallocManaged(&state.exposed_individuals_even_time_steps,  config.population_size * sizeof(IND_TYPE)));
     CheckReturn(cudaMallocManaged(&state.infected_individuals_odd_time_steps,  config.population_size * sizeof(IND_TYPE)));
@@ -489,9 +491,9 @@ void AllocateState(SimulationState& state, Configuration& config)
     CheckReturn(cudaMallocManaged(&state.exposure_timers_even_time_steps,      config.population_size * sizeof(TIMER_TYPE)));
     CheckReturn(cudaMallocManaged(&state.infected_timers_odd_time_steps,       config.population_size * sizeof(TIMER_TYPE)));
     CheckReturn(cudaMallocManaged(&state.infected_timers_even_time_steps,      config.population_size * sizeof(TIMER_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.status_v,       config.population_size * sizeof(INF_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.tx_events,      config.population_size * sizeof(TxEvent)));
-    CheckReturn(cudaMallocManaged(&state.counters,       sizeof(Counters)));
+    CheckReturn(cudaMallocManaged(&state.status_v,                             config.population_size * sizeof(INF_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.tx_events,                            config.population_size * sizeof(TxEvent)));
+    CheckReturn(cudaMallocManaged(&state.counters,                             sizeof(Counters)));
 }
 
 void InitializePrngStates(SimulationState& state, Configuration& config);
@@ -670,7 +672,7 @@ void ZeroVectors(SimulationState& state, uint32_t simulation_steps)
 {
     dim3 blocks(BLOCK_SIZE, 1, 1);
     dim3 grid((state.population_size + BLOCK_SIZE - 1) / BLOCK_SIZE, 1, 1);
-    initialize_vectors<<<grid, blocks>>>(state.status_v, state.susceptibility, state.tx_events, state.population_size);
+    initialize_vectors<<<grid, blocks>>>(state.status_v, state.rx_modifiers, state.tx_modifiers, state.tx_events, state.population_size);
     CheckReturn(cudaDeviceSynchronize());
     CheckReturn(cudaGetLastError());
 }

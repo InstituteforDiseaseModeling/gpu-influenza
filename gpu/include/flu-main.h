@@ -108,7 +108,8 @@ struct SimulationState {
     uint32_t        max_connections;
     IND_TYPE*       network_m;
     CON_TYPE*       connect_m;
-    CON_TYPE*       susceptibility;
+    CON_TYPE*       rx_modifiers;
+    CON_TYPE*       tx_modifiers;
     curandState*    prngStates;
     IND_TYPE*       exposed_individuals_odd_time_steps;
     IND_TYPE*       exposed_individuals_even_time_steps;
@@ -128,7 +129,8 @@ struct SimulationState {
         , max_connections(0)
         , network_m(nullptr)
         , connect_m(nullptr)
-        , susceptibility(nullptr)
+        , rx_modifiers(nullptr)
+        , tx_modifiers(nullptr)
         , prngStates(nullptr)
         , exposed_individuals_odd_time_steps(nullptr)
         , exposed_individuals_even_time_steps(nullptr)

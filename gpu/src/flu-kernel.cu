@@ -7,7 +7,8 @@ __global__ void flu_kernel(
     uint32_t simulation_step,                                                   // RO
     uint32_t population_size, uint32_t connection_count,                        // RO
     float mean_duration_inc, float stddev_duration_inc,                         // RO
-    IND_TYPE* network_m, CON_TYPE* connect_m, CON_TYPE* beta_adjust,            // RO
+    IND_TYPE* network_m, CON_TYPE* connect_m,                                   // RO
+    CON_TYPE* rx_modifiers, CON_TYPE* tx_modifiers,                               // RO
     IND_TYPE* inf_q_in, TIMER_TYPE* inf_timers_in, uint32_t inf_queue_size,     // RO
     INF_TYPE* status_v,                                                         // R/W
     IND_TYPE* exp_q_out, TIMER_TYPE* exp_timers_out, uint32_t* exp_queue_count, // WO
@@ -24,19 +25,23 @@ __global__ void flu_kernel(
     // with no work to do.
     if (infected_index < inf_queue_size)
     {
-        IND_TYPE source_individual = inf_q_in[infected_index];
-        IND_TYPE* neighbors = network_m + (connection_count * source_individual);
-        CON_TYPE* susceptibility = connect_m + (connection_count * source_individual);
+        IND_TYPE source_individual   = inf_q_in[infected_index];
+        IND_TYPE* neighbors          = network_m + (connection_count * source_individual);
+        CON_TYPE* connection_weights = connect_m + (connection_count * source_individual);
+        CON_TYPE tx_adjustment       = tx_modifiers[source_individual];
+
         for (uint32_t neighbor_index = 0; neighbor_index < connection_count; ++neighbor_index)
         {
             IND_TYPE target_individual = neighbors[neighbor_index];
             // TODO - ignore status_v[target_individual] here to allow super-infection?
-            if (STATUS_SUSCEPTIBLE==status_v[target_individual])
+            if ( STATUS_SUSCEPTIBLE == status_v[target_individual] )
             {
                 curandState* prngState = prngStates + source_individual;
                 CON_TYPE draw = CON_TYPE(curand_uniform(prngState));
-                CON_TYPE beta_modifier = beta_adjust[target_individual];
-                if (draw < (susceptibility[neighbor_index]*beta_modifier))
+                // transmission probability depends on strength of connection to this neighbor adjusted by transmitter's factor and receiver's susceptibility
+                CON_TYPE tx_probability = connection_weights[neighbor_index] * tx_adjustment * rx_modifiers[target_individual];
+
+                if (draw < tx_probability)
                 {
                     INF_TYPE infected = atomicExch(&status_v[target_individual], INF_TYPE(STATUS_EXPOSED));
                     if (infected == STATUS_SUSCEPTIBLE)
@@ -221,14 +226,18 @@ __global__ void setup_network(
 }
 
 __global__ void initialize_vectors(
-    INF_TYPE* status_v, CON_TYPE* beta_adjust, TxEvent* transmission_events, uint32_t population_count)
+    INF_TYPE* status_v,
+    CON_TYPE* rx_modifiers, CON_TYPE* tx_modifiers,
+    TxEvent* transmission_events,
+    uint32_t population_count)
 {
     uint32_t individual = (blockDim.x * blockIdx.x) + threadIdx.x;
 
     if ( individual < population_count )
     {
        status_v[individual]                            = STATUS_SUSCEPTIBLE;
-       beta_adjust[individual]                         = 1.0f;
+       rx_modifiers[individual]                         = 1.0f;
+       tx_modifiers[individual]                         = 1.0f;
        transmission_events[individual].source          = -1;
        transmission_events[individual].time_exposed    = -1;
        transmission_events[individual].time_infectious = -1;

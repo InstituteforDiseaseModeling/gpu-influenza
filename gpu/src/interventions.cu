@@ -13,7 +13,7 @@
 #include "interventions.h"
 
 #define CSV_IO_NO_THREAD
-#include "csv.h"
+#include "csv.h"    // https://github.com/ben-strasser/fast-cpp-csv-parser
 
 struct IIntervention
 {
@@ -61,7 +61,7 @@ void process_interventions(uint32_t step, Configuration& config, SimulationState
         Read a[j], the attenuation for this intervention
         Decrement remaining_time for each active intervention and node
         For each active intervention on each node k that reaches 0:
-            susceptibility[k] = susceptibility[k] / (1 – a[j])
+            rx_mod[k] = rx_mod[k] / (1 – a[j])
     */
     /*
     [trigger new interventions] for each intervention:
@@ -109,7 +109,7 @@ attribute_intervention(): the intervention event is applied to all nodes that ma
     read target_attribute, target_value, duration, and attenuation_factor
     for each node k in network:
         if attribute[k][target_attribute] == target_value:
-            susceptibility[k] = susceptibility[k] * attenuation_factor
+            rx_mod[k] = rx_mod[k] * attenuation_factor
             add (duration, attenuation_factor) to beta_modifier_tracker[k] vector.
 */
 
@@ -117,7 +117,7 @@ __global__ void attribute_intervention_kernel(
     uint32_t population_size,
     uint16_t* attributes,
     uint16_t target_value,
-    CON_TYPE* susceptibility,
+    CON_TYPE* rx_modifiers,
     float factor)
 {
     uint32_t individual_index = (blockDim.x * blockIdx.x) + threadIdx.x;
@@ -125,12 +125,12 @@ __global__ void attribute_intervention_kernel(
     {
         if ( attributes[individual_index] == target_value )
         {
-            susceptibility[individual_index] *= factor;
+            rx_modifiers[individual_index] *= factor;
         }
     }
 }
 
-void attribute_intervention(uint32_t step, SimulationState& state, uint32_t attribute_name, uint16_t target_value, float attenuation)
+void attribute_intervention(uint32_t step, SimulationState& state, const std::string& attribute_name, uint16_t target_value, float attenuation)
 {
     uint32_t blockX = BLOCK_SIZE;
     dim3 block(blockX, 1, 1);
@@ -139,7 +139,7 @@ void attribute_intervention(uint32_t step, SimulationState& state, uint32_t attr
 
     ATTR_TYPE* attributes(state.attributes.at(attribute_name));
 
-    attribute_intervention_kernel<<<grid, block>>>( state.population_size, attributes, target_value, state.susceptibility, attenuation);
+    attribute_intervention_kernel<<<grid, block>>>( state.population_size, attributes, target_value, state.rx_modifiers, attenuation);
 
     CheckReturn(cudaDeviceSynchronize());
     CheckReturn(cudaGetLastError());
@@ -155,7 +155,7 @@ neighbor_intervention(): The Intervention event is applied to all neighbors of e
             implement_intervention[j] = 1
     for each node k in implement_intervention:
         if implement_intervention[k] == 1 then:
-            susceptibility[k] = susceptibility[k] * attenuation_factor
+            rx_mod[k] = rx_mod[k] * attenuation_factor
             add (duration, attenuation_factor) to beta_modifier_tracker[k] vector.
 */
 
@@ -204,7 +204,7 @@ for each infectious node k in network:
         add attribute[target_attribute] to attribute_values
 for each node k in network:
     if attribute[k][target_attribute] is in attribute_values:
-        // susceptibility[k] = susceptibility[k] * attenuation_factor
+        // rx_mod[k] = rx_mod[k] * attenuation_factor
         connection_weights *= attenuation_factor
         add (duration, attenuation_factor) to beta_modifier_tracker[k] vector.
 */
@@ -241,7 +241,7 @@ for each infectious node k in network:
             implement_intervention[j] = 1
 for each node k in implement_intervention:
     if implement_intervention[k] == 1 then:
-        susceptibility[k] = susceptibility[k] * attenuation_factor
+        rx_mod[k] = rx_mod[k] * attenuation_factor
         add (duration, attenuation_factor) to beta_modifier_tracker[k] vector.
 */
 
@@ -251,7 +251,7 @@ __global__ void neighbor_matching_intervention_kernel(
     ATTR_TYPE* attributes,
     IND_TYPE* network_m,
     uint32_t connection_count,
-    CON_TYPE* susceptibility,
+    CON_TYPE* rx_modifiers,
     CON_TYPE factor
 )
 {
@@ -266,7 +266,7 @@ __global__ void neighbor_matching_intervention_kernel(
             IND_TYPE target_individual = neighbors[neighbor_index];
             if ( attributes[target_individual] == attribute )
             {
-                susceptibility[target_individual] *= factor;
+                rx_modifiers[target_individual] *= factor;
             }
         }
     }
@@ -288,7 +288,7 @@ void neighbor_matching_intervention(uint32_t step, SimulationState& state, const
         attributes,
         state.network_m,
         state.max_connections,
-        state.susceptibility,
+        state.rx_modifiers,
         factor
     );
 }
@@ -408,7 +408,7 @@ void AddIntervention( IIntervention* intervention, std::string& trigger, uint32_
 
 void load_interventions(const std::string filename)
 {
-    io::CSVReader<8> reader(filename);
+    io::CSVReader<8, io::trim_chars<' ', '\t'>, io::no_quote_escape<','>, io::throw_on_overflow, io::single_line_comment<'#'>> reader(filename);    // allow comment lines prefixed with '#'
     reader.read_header(io::ignore_extra_column, "tag", "type", "trigger", "trigger_value", "duration", "factor", "attribute", "attribute_value");
     std::string tag;
     uint32_t type;
