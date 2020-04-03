@@ -4,13 +4,13 @@ from argparse import ArgumentParser
 import numpy as np
 
 
-def main(population_size, output_filename):
+def main(population_size, household_size, output_filename):
 
     attributes = {}
 
-    # put people in households of size 4
-    households = np.arange(population_size, dtype=np.uint16)
-    households = households // 4
+    # put people in households of size household_size (default 4)
+    households = np.arange(population_size, dtype=np.uint16)    # 0, 1, 2, 3, 4, 5, ..., population_size-1
+    households = households // household_size                   # 0, 0, 0, 0, 1, 1, ..., (population_size-1)//household_size
     attributes["households"] = households
 
     # assign people to primary daytime locations of size ~512
@@ -30,8 +30,9 @@ def main(population_size, output_filename):
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("-p", "--population", type=int, default=1024)
+    parser.add_argument("-h", "--household", type=int, default=4)
     parser.add_argument("-o", "--output", default="attributes.txt")
 
     args = parser.parse_args()
 
-    main(args.population, args.output)
+    main(args.population, args.household, args.output)

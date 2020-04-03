@@ -13,7 +13,7 @@ class Intervention(object):
     NEIGHBORMATCHING = 4
 
 
-    def __init__(self, kind, tag="unnamed", trigger="TIME", trigger_value=0, duration=_MAX_DURATION, factor=1.0, attribute=None, attribute_value=None):
+    def __init__(self, kind, tag="unnamed", trigger="TIME", trigger_value=0, duration=_MAX_DURATION, factor=1.0, attribute=None, attribute_value=None, comment=None):
         self._type = kind
         self._tag = tag
         self._trigger = trigger.upper()
@@ -22,6 +22,7 @@ class Intervention(object):
         self._factor = factor
         self._attribute = attribute if attribute else "n/a"
         self._attribute_value = attribute_value if attribute_value else 0
+        self._comment = str(comment) if comment else None
 
         self._validate()
 
@@ -71,38 +72,43 @@ class Intervention(object):
     def attribute_value(self):
         return self._attribute_value
 
+    @property
+    def comment(self):
+        return self._comment
+
     def __str__(self):
-        return f"{self.tag},{self.type},{self.trigger},{self.trigger_value},{self.duration},{self.factor},{self.attribute},{self.attribute_value}"
+        prefix = f"# {self.comment}\n" if self.comment else ""
+        return f"{prefix}{self.tag},{self.type},{self.trigger},{self.trigger_value},{self.duration},{self.factor},{self.attribute},{self.attribute_value}"
 
 
 class AttributeIntervention(Intervention):
 
-    def __init__(self, tag, trigger, trigger_value, duration, factor, attribute, attribute_value):
-        super().__init__(Intervention.ATTRIBUTE, tag, trigger, trigger_value, duration, factor, attribute, attribute_value)
+    def __init__(self, tag, trigger, trigger_value, duration, factor, attribute, attribute_value, comment=None):
+        super().__init__(Intervention.ATTRIBUTE, tag, trigger, trigger_value, duration, factor, attribute, attribute_value, comment)
 
         return
 
 
 class NeighborIntervention(Intervention):
 
-    def __init__(self, tag, trigger, trigger_value, duration, factor):
-        super().__init__(Intervention.NEIGHBOR, tag, trigger, trigger_value, duration, factor)
+    def __init__(self, tag, trigger, trigger_value, duration, factor, comment=None):
+        super().__init__(Intervention.NEIGHBOR, tag, trigger, trigger_value, duration, factor, comment=comment)
 
         return
 
 
 class NodeMatchingIntervention(Intervention):
 
-    def __init__(self, tag, trigger, trigger_value, duration, factor, attribute):
-        super().__init__(Intervention.NODEMATCHING, tag, trigger, trigger_value, duration, factor, attribute)
+    def __init__(self, tag, trigger, trigger_value, duration, factor, attribute, comment=None):
+        super().__init__(Intervention.NODEMATCHING, tag, trigger, trigger_value, duration, factor, attribute, comment=comment)
 
         return
 
 
 class NeighborMatchingIntervention(Intervention):
 
-    def __init__(self, tag, trigger, trigger_value, duration, factor, attribute, attribute_value):
-        super().__init__(Intervention.NEIGHBORMATCHING, tag, trigger, trigger_value, duration, factor, attribute, attribute_value)
+    def __init__(self, tag, trigger, trigger_value, duration, factor, attribute, attribute_value, comment=None):
+        super().__init__(Intervention.NEIGHBORMATCHING, tag, trigger, trigger_value, duration, factor, attribute, attribute_value, comment)
 
         return
 
@@ -131,7 +137,7 @@ class Campaign(object):
         with open(filename, "wt") as handle:
             handle.write("tag,type,trigger,trigger_value,duration,factor,attribute,attribute_value"+"\n")
             for intervention in self.interventions:
-                handle.write(str(intervention)+"\n")
+                handle.write(f"{intervention}\n")
 
         return
 
@@ -141,14 +147,11 @@ class CampaignTest(unittest.TestCase):
     def test_campaign(self):
 
         c = Campaign()
-        a = AttributeIntervention("attribute_iv", "TIME", 30, 30, 0.25, "household", 2020)
-        c += a
-        n = NeighborIntervention("neighbor_iv", "COUNT", 100, 14, 0.125)
-        c += n
-        node = NodeMatchingIntervention("nodematch_iv", "TIME", 60, 31, 0.125, "household")
-        c += node
-        neighbor_match = NeighborMatchingIntervention("neighbormatch_iv", "COUNT", 128, 60, 0.125, "school", 13)
-        c += neighbor_match
+        c += AttributeIntervention("attribute_iv", "COUNT", 20, 365, 0.0625, "household", 0, "if count >= 20, reduce susceptibility of people in primary location 0")
+        c += AttributeIntervention("attribute_iv", "COUNT", 20, 365, 0.0625, "household", 1)
+        c += NeighborIntervention("neighbor_iv", "COUNT", 100, 14, 0.000030517578125, comment="if count >= 100, quarantine (2^-15) all currently infectious individuals for 14 time steps")
+        c += NodeMatchingIntervention("nodematch_iv", "TIME", 60, 31, 0.125, "household")
+        c += NeighborMatchingIntervention("neighbormatch_iv", "COUNT", 128, 60, 0.125, "school", 13, "if count >= 128, quarantine all households of infectious individuals")
         c.write_file("campaign.csv")
 
         return
