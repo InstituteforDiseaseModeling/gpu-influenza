@@ -1,4 +1,4 @@
-name: gpuflu_v6
+name: gpuflu_v8
 channels:
   - defaults
 
@@ -17,7 +17,14 @@ dependencies:
   - blas
   - mkl
 
+  # Graphs/networks
+  - networkx
+  - pygraphviz 
+  - pydot
+  - gdal
+
   # Others
+  - pyyaml
 
   # More dependencies (via pip)
   - pip:

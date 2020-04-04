@@ -546,6 +546,8 @@ void InitializeNetwork(SimulationState& state, Configuration& config)
 
 void LoadNetworkFromFile(SimulationState& state, Configuration& config)
 {
+    auto start = clock();
+
     const char* filename = config.input_filename.c_str();
 
     // See if the file is the correct size.
@@ -590,6 +592,16 @@ void LoadNetworkFromFile(SimulationState& state, Configuration& config)
         std::cerr << "Could not call stat() on '" << filename << "'." << std::endl;
         exit(-1);
     }
+
+    // Update network weights with transmissibility information
+    dim3 blocks(BLOCK_SIZE, 1, 1);
+    dim3 grid((state.population_size + BLOCK_SIZE - 1) / BLOCK_SIZE, 1, 1);
+    init_network_from_file<<<grid, blocks>>>(state.connect_m, state.population_size, state.max_connections, config.infectious_duration, config.r0, config.r0_std, state.prngStates);
+    CheckReturn(cudaDeviceSynchronize());
+    CheckReturn(cudaGetLastError());
+
+    auto end = clock();
+    std::cout << (1000 * uint64_t(end - start) / double(CLOCKS_PER_SEC)) << " milliseconds to initialize network." << std::endl;
 }
 
 void InitializeNetworkOnGpu(SimulationState& state, Configuration& config)

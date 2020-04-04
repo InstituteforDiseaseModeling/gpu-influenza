@@ -1,14 +1,12 @@
 """ gpu-influenza
 
-    Python interface to gpu-influenza model at
-    https://github.com/ghart-IDM/gpu-influenza/tree/versionSEIR/gpu. This 
-    interface is defined by the gpu_influenza() function. 
+    Python interface to SEIR mode of gpu-influenza model. This interface is 
+    defined by the gpu_influenza() function. 
 
     All functions with "gpu_influenza" prefix are interfaces to the GPU code.
  
     Requirements:
-     - gpu_influenza:
-       https://github.com/ghart-IDM/gpu-influenza/tree/versionSEIR/gpu
+     - gpu_influenza
      
     NOTE: Set constants to point to the gpu_influenza binary.
     
