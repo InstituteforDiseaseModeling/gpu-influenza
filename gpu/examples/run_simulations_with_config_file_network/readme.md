@@ -13,4 +13,7 @@ Instructions:
 
 - Run `generate_network.py`
 
+- Update configuration file (`population` and `connections` may change
+  depending on the input data and parameters in `generate_network.py`
+
 - Run `python3 ../../gpuflu/flusim.py -c multiple_r0_sim.json`
