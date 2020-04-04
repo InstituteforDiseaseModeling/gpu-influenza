@@ -220,6 +220,33 @@ __global__ void setup_network(
     }
 }
 
+// Initialize network weights when loading from file
+__global__ void init_network_from_file(
+    CON_TYPE* connections,
+    uint32_t population_count, uint32_t connection_count,
+    float infectious_duration, float r0, float r0_std,
+    curandState* prngStates)
+{
+    uint32_t individual = (blockDim.x * blockIdx.x) + threadIdx.x;
+    if ( individual < population_count ) {
+        CON_TYPE* weights   = connections + (connection_count * individual);
+        curandState* prngState = prngStates + individual;
+        float Rcurr = curand_log_normal(prngState, r0, r0_std);
+        float transmissibility;
+        int nNeighbors = 0;
+        for (int j=0; j < (int)connection_count; ++j) {
+            if ( weights[j] > CON_TYPE(0) ) {
+                nNeighbors++;
+            }
+        }
+        transmissibility = Rcurr / (infectious_duration*(float)nNeighbors); 
+        for (int j=0; j < (int)connection_count; ++j) {
+            float weight = (float)weights[j] * transmissibility;
+            weights[j] = CON_TYPE(weight);
+        }
+    }
+}
+
 __global__ void initialize_vectors(
     INF_TYPE* status_v, CON_TYPE* beta_adjust, TxEvent* transmission_events, uint32_t population_count)
 {

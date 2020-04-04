@@ -12,8 +12,8 @@ filename_out = "king_county.bin"
 w_household  = 1.0  # Weight for connections in same household
 w_school     = 0.9  # ditto school
 w_work       = 0.8  # ditto work
-max_school_edges = 50
-max_work_edges   = 25
+max_school_edges = 100
+max_work_edges   = 50
 seed = 10100
 
 

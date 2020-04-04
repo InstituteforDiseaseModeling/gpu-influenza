@@ -20,6 +20,12 @@ __global__ void setup_network(
     float infectious_duration, float r0, float r0_std,
     curandState* prngStates);
 
+__global__ void init_network_from_file(
+    CON_TYPE* connections,
+    uint32_t population_count, uint32_t connection_count,
+    float infectious_duration, float r0, float r0_std,
+    curandState* prngStates);
+
 __global__ void flu_importation(
     uint32_t simulation_step,       // RO
     uint32_t population_size,       // RO
