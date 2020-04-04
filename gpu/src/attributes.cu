@@ -17,8 +17,14 @@ void check_file( const std::ifstream& file, const std::string& filename );
 void split_line( const std::string& line, std::string& name, std::string& file );
 void load_attribute( const std::string& attribute_name, const std::string& attribute_file, SimulationState& state );
 
-void load_attributes(std::string filename, SimulationState& state)
+void load_attributes(const std::string& filename, SimulationState& state)
 {
+    if ( filename.size() == 0 )
+    {
+        printf( "No attributes specified.\n" );
+        return;
+    }
+
     std::ifstream infile(filename);
     check_file( infile, filename );
     std::string line;

@@ -53,6 +53,8 @@ struct Configuration {
     std::string input_filename;
     std::string output_filename;
     std::string network_filename;
+    std::string attributes_filename;
+    std::string campaign_filename;
     uint32_t    vac_num;
     uint32_t*   vac_times;
     float*      vac_effectiveness;
@@ -81,6 +83,8 @@ struct Configuration {
         , input_filename("")
         , output_filename(DEFAULT_OUTPUT)
         , network_filename("")
+        , attributes_filename("")
+        , campaign_filename("")
         , vac_num(DEFAULT_VACCINATIONS)
         , vac_times(DEFAULT_VAC_TIMES)
         , vac_effectiveness(DEFAULT_VAC_EFFECTIVENESS)
@@ -123,6 +127,7 @@ struct SimulationState {
     TxEvent*        tx_events;
     Counters*       counters;
     std::map<std::string, ATTR_TYPE*> attributes;
+    uint8_t*        scratch;
 
     SimulationState()
         : population_size(0)
@@ -143,5 +148,6 @@ struct SimulationState {
         , status_v(nullptr)
         , counters(nullptr)
         , attributes()
+        , scratch(nullptr)
     {}
 };

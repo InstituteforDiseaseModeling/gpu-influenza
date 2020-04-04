@@ -6,4 +6,4 @@
 
 #include "flu-main.h"
 
-void load_attributes(std::string filename, SimulationState& state);
+void load_attributes(const std::string& filename, SimulationState& state);

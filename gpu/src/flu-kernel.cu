@@ -147,7 +147,7 @@ __global__ void flu_importation(
 }
 
 __global__ void flu_vaccinate(
-    CON_TYPE* beta_adjust, float effectiveness, float coverage,
+    CON_TYPE* rx_modifiers, float effectiveness, float coverage,
     uint32_t population, curandState* prngStates)
 {
     uint32_t individual = (blockDim.x * blockIdx.x) + threadIdx.x;
@@ -158,7 +158,7 @@ __global__ void flu_vaccinate(
         float draw = curand_uniform(prngState);
         if (draw < coverage)
         {
-            beta_adjust[individual] = 1.0 - effectiveness;
+            rx_modifiers[individual] = 1.0 - effectiveness;
         }
     }
 }

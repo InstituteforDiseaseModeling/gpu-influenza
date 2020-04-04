@@ -4,13 +4,13 @@
 
 #include <chrono>
 #include <cstdio>
-
-#include "block-size.h"
-#include "check-return.h"
-
+#include <fstream>
 #include <iostream>
 #include <iomanip>
 #include <random>
+
+#include "block-size.h"
+#include "check-return.h"
 
 #include "flu-kernel.h"
 #include "flu-main.h"
@@ -86,8 +86,8 @@ int main(int argc, const char* argv[])
     TIMER_TYPE* infected_timers_last_time_step;
     TIMER_TYPE* infected_timers_this_time_step;
 
-    load_attributes( "attributes.txt", state );
-    load_interventions("gpuflu/campaign.csv");
+    load_attributes( config.attributes_filename, state );
+    load_interventions( config.campaign_filename );
 
     auto start = clock();
     uint32_t extinction_duration = 0;
@@ -210,35 +210,39 @@ void ShowHelp(const char* name)
 {
     std::cout << std::endl;
     std::cout << name << ':' << std::endl;
-    std::cout << "\t--population:#       - population size [" << DEFAULT_POP << ']' << std::endl;
-    std::cout << "\t--connections:#      - per agent network degree [" << DEFAULT_CONS << ']' << std::endl;
-    std::cout << "\t--exposures:#        - number of initial exposed [" << DEFAULT_EXPS << ']' << std::endl;
-    std::cout << "\t--infections:#       - number of initial infections [" << DEFAULT_INFS << ']' << std::endl;
-    std::cout << "\t--time:#             - number of time steps [" << DEFAULT_STEPS << ']' << std::endl;
-    std::cout << "\t--durationE:#        - mean exposure duration (days) [" << exp(DEFAULT_EXPOSED_DURATION_MEAN) << ']' << std::endl;
-    std::cout << "\t--stddevE:#          - exposure duration std dev (days) [" << exp(DEFAULT_EXPOSED_DURATION_STD) << ']' << std::endl;
-    std::cout << "\t--durationI:#        - mean infectious duration (days) [" << exp(DEFAULT_INFECTIOUS_DURATION_MEAN) << ']' << std::endl;
-    std::cout << "\t--stddevI:#          - infectious duration std dev (days) [" << exp(DEFAULT_INFECTIOUS_DURATION_STD) << ']' << std::endl;
-    std::cout << "\t--r0:#               - mean r0 [" << exp(DEFAULT_R0) << ']' << std::endl;
-    std::cout << "\t--stddevr0:#         - r0 std dev [" << exp(DEFAULT_R0_STD) << ']' << std::endl;
-    std::cout << "\t--seed:#             - random number seed [" << DEFAULT_SEED << ']' << std::endl;
-    std::cout << "\t--input:filename     - name of file with network data [ none ]" << std::endl;
-    std::cout << "\t--output:filename    - name of file for transmission data [ '" << DEFAULT_OUTPUT << "' ]" << std::endl;
-    std::cout << "\t--network:filename   - name of file for saving network data [ none ]" << std::endl;
-    std::cout << "\t--quiet              - do not display state during execution" << std::endl;
-    std::cout << "\t--debug              - display debugging information" << std::endl;
-    std::cout << "\t--vaccinations:#     - number of vaccination events [" << DEFAULT_VACCINATIONS << "]" << std::endl;
-    std::cout << "\t--vacTimes:#,#       - time points to apply vaccination [none]" << std::endl;
-    std::cout << "\t--vacEffect:#,#      - effectiveness of each intervention [none]" << std::endl;
-    std::cout << "\t--vacCoverage:#,#    - coverage of each intervention [none]" << std::endl;
-    std::cout << "\t--importMag:#        - magitude of the importations [" << DEFAULT_IMPORTATION_MAG << "]" << std::endl;
-    std::cout << "\t--importDoubleTime:# - doubling time of the importations (days) [" << DEFAULT_IMPORTATION_DOUBLING << "]" << std::endl;
-    std::cout << "\t--durationImport:#   - mean exposure time (left) for imported cases (days) [" << DEFAULT_IMPORTATION_DURATION_MEAN << "]" << std::endl;
-    std::cout << "\t--stddevImport:#     - exposed time std dev of the imported cases (days) [" << DEFAULT_IMPORTATION_DURATION_STD << "]" << std::endl;
-    std::cout << "\t--reseedTime:#       - maximum number of days without infection before ending sim (days) [" << DEFAULT_RESEED_TIME << "]" << std::endl;
+    std::cout << "\t--population:#        - population size [" << DEFAULT_POP << ']' << std::endl;
+    std::cout << "\t--connections:#       - per agent network degree [" << DEFAULT_CONS << ']' << std::endl;
+    std::cout << "\t--exposures:#         - number of initial exposed [" << DEFAULT_EXPS << ']' << std::endl;
+    std::cout << "\t--infections:#        - number of initial infections [" << DEFAULT_INFS << ']' << std::endl;
+    std::cout << "\t--time:#              - number of time steps [" << DEFAULT_STEPS << ']' << std::endl;
+    std::cout << "\t--durationE:#         - mean exposure duration (days) [" << exp(DEFAULT_EXPOSED_DURATION_MEAN) << ']' << std::endl;
+    std::cout << "\t--stddevE:#           - exposure duration std dev (days) [" << exp(DEFAULT_EXPOSED_DURATION_STD) << ']' << std::endl;
+    std::cout << "\t--durationI:#         - mean infectious duration (days) [" << exp(DEFAULT_INFECTIOUS_DURATION_MEAN) << ']' << std::endl;
+    std::cout << "\t--stddevI:#           - infectious duration std dev (days) [" << exp(DEFAULT_INFECTIOUS_DURATION_STD) << ']' << std::endl;
+    std::cout << "\t--r0:#                - mean r0 [" << exp(DEFAULT_R0) << ']' << std::endl;
+    std::cout << "\t--stddevr0:#          - r0 std dev [" << exp(DEFAULT_R0_STD) << ']' << std::endl;
+    std::cout << "\t--seed:#              - random number seed [" << DEFAULT_SEED << ']' << std::endl;
+    std::cout << "\t--input:filename      - name of file with network data [ none ]" << std::endl;
+    std::cout << "\t--output:filename     - name of file for transmission data [ '" << DEFAULT_OUTPUT << "' ]" << std::endl;
+    std::cout << "\t--network:filename    - name of file for saving network data [ none ]" << std::endl;
+    std::cout << "\t--attributes:filename - name of file with attribute specifications [ none ]" << std::endl;
+    std::cout << "\t--campaign:filename   - name of file with campaign interventions [ none ]" << std::endl;
+    std::cout << "\t--quiet               - do not display state during execution" << std::endl;
+    std::cout << "\t--debug               - display debugging information" << std::endl;
+    std::cout << "\t--vaccinations:#      - number of vaccination events [" << DEFAULT_VACCINATIONS << "]" << std::endl;
+    std::cout << "\t--vacTimes:#,#        - time points to apply vaccination [none]" << std::endl;
+    std::cout << "\t--vacEffect:#,#       - effectiveness of each intervention [none]" << std::endl;
+    std::cout << "\t--vacCoverage:#,#     - coverage of each intervention [none]" << std::endl;
+    std::cout << "\t--importMag:#         - magitude of the importations [" << DEFAULT_IMPORTATION_MAG << "]" << std::endl;
+    std::cout << "\t--importDoubleTime:#  - doubling time of the importations (days) [" << DEFAULT_IMPORTATION_DOUBLING << "]" << std::endl;
+    std::cout << "\t--durationImport:#    - mean exposure time (left) for imported cases (days) [" << DEFAULT_IMPORTATION_DURATION_MEAN << "]" << std::endl;
+    std::cout << "\t--stddevImport:#      - exposed time std dev of the imported cases (days) [" << DEFAULT_IMPORTATION_DURATION_STD << "]" << std::endl;
+    std::cout << "\t--reseedTime:#        - maximum number of days without infection before ending sim (days) [" << DEFAULT_RESEED_TIME << "]" << std::endl;
     std::cout << std::endl;
     exit(-1);
 }
+
+bool fexists(const std::string& filename);
 
 void ValidateArguments(Configuration& config)
 {
@@ -271,15 +275,27 @@ void ValidateArguments(Configuration& config)
             std::cerr << "The coverage of a vaccine must be between 0 and 1 (0% and 100%) "<< std::endl; okay = false;
         }
     }
-    if ( config.import_mag < 0.0f )               { std::cerr << "magitude of importations must be >= 0"      << std::endl; okay = false; }
+    if ( config.import_mag < 0.0f )               { std::cerr << "magnitude of importations must be >= 0"     << std::endl; okay = false; }
     if ( config.import_rate < 0.0f )              { std::cerr << "doubling time of importations must be >= 0" << std::endl; okay = false; }
     if ( config.import_duration < 0.0f )          { std::cerr << "imported exposed duration must be >= 0"     << std::endl; okay = false; }
     if ( config.import_duration_std < 0.0f )      { std::cerr << "imported exposed duration std must be >= 0" << std::endl; okay = false; }
     //if ( config.reseed_time < 0 )                 { std::cerr << "reseeding time must be >= 0"                << std::endl; okay = false; }
 
+    if ( (config.attributes_filename.size() !=0) and !fexists( config.attributes_filename ) ) { std::cerr << "specified attributes file '" << config.attributes_filename.c_str() << "' does not exist" << std::endl; okay = false; }
+    if ( (config.campaign_filename.size() != 0)  and !fexists( config.campaign_filename ) )   { std::cerr << "specific campaign file '" << config.campaign_filename.c_str() << "' does not exist" << std::endl; okay = false; }
+
     if ( !okay ) { exit(-1); }
 
     return;
+}
+
+bool fexists(const std::string& filename)
+{
+  std::ifstream ifile(filename.c_str());
+  bool exists = bool(ifile);
+  ifile.close();
+
+  return exists;
 }
 
 void PrintArray(float* array, int n);
@@ -318,6 +334,8 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
             else if ( strncmp(arg, "input",            len) == 0 ) { config.input_filename          = std::string(value); }
             else if ( strncmp(arg, "output",           len) == 0 ) { config.output_filename         = std::string(value); }
             else if ( strncmp(arg, "network",          len) == 0 ) { config.network_filename        = std::string(value); }
+            else if ( strncmp(arg, "attributes",       len) == 0 ) { config.attributes_filename     = std::string(value); }
+            else if ( strncmp(arg, "campaign",         len) == 0 ) { config.campaign_filename       = std::string(value); }
             else if ( strncmp(arg, "vaccinations",     len) == 0 )
             {
                 config.vac_num           = atoi(value);
@@ -369,6 +387,8 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
     std::cout << "Input (network) filename:          " << config.input_filename.c_str()       << std::endl;
     std::cout << "Output (transmissions) filename:   " << config.output_filename.c_str()      << std::endl;
     std::cout << "Network (save) filename:           " << config.network_filename.c_str()     << std::endl;
+    std::cout << "Attributes specification filename: " << config.attributes_filename.c_str()  << std::endl;
+    std::cout << "Campaign specification filename:   " << config.campaign_filename.c_str()    << std::endl;
     std::cout << "Quiet mode:                        " << (config.quiet ? "on" : "off")       << std::endl;
     std::cout << "Debugging mode:                    " << (config.debug ? "on" : "off")       << std::endl;
     std::cout << "Number of vaccination events:      " << config.vac_num                      << std::endl;
@@ -494,12 +514,13 @@ void AllocateState(SimulationState& state, Configuration& config)
     CheckReturn(cudaMallocManaged(&state.status_v,                             config.population_size * sizeof(INF_TYPE)));
     CheckReturn(cudaMallocManaged(&state.tx_events,                            config.population_size * sizeof(TxEvent)));
     CheckReturn(cudaMallocManaged(&state.counters,                             sizeof(Counters)));
+    CheckReturn(cudaMallocManaged(&state.scratch,                              (1 << (sizeof(ATTR_TYPE)*8)) * sizeof(uint8_t)));
 }
 
 void InitializePrngStates(SimulationState& state, Configuration& config);
 void InitializeNetwork(SimulationState& state, Configuration& config);
 void SeedInfections(SimulationState& state, Configuration& config, std::mt19937_64& generator);
-void ZeroVectors(SimulationState& state, uint32_t simulation_steps);
+void InitializeVectors(SimulationState& state, uint32_t simulation_steps);
 
 void InitializeState(SimulationState& state, Configuration& config, std::mt19937_64& generator)
 {
@@ -515,7 +536,7 @@ void InitializeState(SimulationState& state, Configuration& config, std::mt19937
 
     InitializePrngStates(state, config);
     InitializeNetwork(state, config);
-    ZeroVectors(state, config.simulation_steps);
+    InitializeVectors(state, config.simulation_steps);
     SeedInfections(state, config, generator);
 }
 
@@ -667,8 +688,7 @@ void SeedInfections(SimulationState& state, Configuration& config, std::mt19937_
     state.counters->infected_currently = config.initial_infections;
 }
 
-// TODO - could do this on the GPU with a tiny kernel
-void ZeroVectors(SimulationState& state, uint32_t simulation_steps)
+void InitializeVectors(SimulationState& state, uint32_t simulation_steps)
 {
     dim3 blocks(BLOCK_SIZE, 1, 1);
     dim3 grid((state.population_size + BLOCK_SIZE - 1) / BLOCK_SIZE, 1, 1);

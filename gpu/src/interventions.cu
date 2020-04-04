@@ -15,29 +15,6 @@
 #define CSV_IO_NO_THREAD
 #include "csv.h"    // https://github.com/ben-strasser/fast-cpp-csv-parser
 
-struct IIntervention
-{
-// public:
-    IIntervention() {}
-    virtual ~IIntervention() {}
-    virtual void Apply(uint32_t time_step, Configuration& config, SimulationState& state) = 0;
-    virtual uint32_t GetDuration( void ) = 0;
-};
-
-struct BaseIntervention : IIntervention
-{
-//public:
-    BaseIntervention(const std::string& tag, uint32_t duration, float factor, const std::string& attribute = "", uint32_t attribute_value = 0);
-    uint32_t GetDuration( void ) { return duration; }
-
-protected:
-    std::string tag;
-    uint32_t duration;
-    float factor;
-    std::string attribute;
-    uint32_t attribute_value;
-};
-
 BaseIntervention::BaseIntervention(const std::string& tag, uint32_t duration, float factor, const std::string& attribute, uint32_t attribute_value)
     : tag(tag)
     , duration(duration)
@@ -115,9 +92,9 @@ attribute_intervention(): the intervention event is applied to all nodes that ma
 
 __global__ void attribute_intervention_kernel(
     uint32_t population_size,
-    uint16_t* attributes,
-    uint16_t target_value,
-    CON_TYPE* rx_modifiers,
+    ATTR_TYPE* attributes,
+    ATTR_TYPE target_value,
+    CON_TYPE* tx_modifiers,
     float factor)
 {
     uint32_t individual_index = (blockDim.x * blockIdx.x) + threadIdx.x;
@@ -125,7 +102,7 @@ __global__ void attribute_intervention_kernel(
     {
         if ( attributes[individual_index] == target_value )
         {
-            rx_modifiers[individual_index] *= factor;
+            tx_modifiers[individual_index] *= factor;
         }
     }
 }
@@ -139,7 +116,7 @@ void attribute_intervention(uint32_t step, SimulationState& state, const std::st
 
     ATTR_TYPE* attributes(state.attributes.at(attribute_name));
 
-    attribute_intervention_kernel<<<grid, block>>>( state.population_size, attributes, target_value, state.rx_modifiers, attenuation);
+    attribute_intervention_kernel<<<grid, block>>>( state.population_size, attributes, target_value, state.tx_modifiers, attenuation);
 
     CheckReturn(cudaDeviceSynchronize());
     CheckReturn(cudaGetLastError());
@@ -155,26 +132,28 @@ neighbor_intervention(): The Intervention event is applied to all neighbors of e
             implement_intervention[j] = 1
     for each node k in implement_intervention:
         if implement_intervention[k] == 1 then:
-            rx_mod[k] = rx_mod[k] * attenuation_factor
+            tx_mod[k] = tx_mod[k] * attenuation_factor
             add (duration, attenuation_factor) to beta_modifier_tracker[k] vector.
 */
 
 __global__ void neighbor_intervention_kernel(
-    uint32_t queue_size,
-    IND_TYPE* queue,
-    CON_TYPE* connect_m,
+    uint32_t infected_count,
+    IND_TYPE* infected,
+    IND_TYPE* network_m,
     uint32_t connection_count,
+    CON_TYPE* tx_modifiers,
     float factor
 )
 {
-    uint32_t queue_index = (blockDim.x * blockIdx.x) + threadIdx.x;
-    if ( queue_index < queue_size )
+    uint32_t individual_index = (blockDim.x * blockIdx.x) + threadIdx.x;
+    if ( individual_index < infected_count )
     {
-        uint32_t individual_id = queue[queue_index];
-        CON_TYPE* connections = connect_m + (connection_count * individual_id);
+        uint32_t individual_id = infected[individual_index];
+        IND_TYPE* neighbors = network_m + (connection_count * individual_id);
         for (uint32_t neighbor_index = 0; neighbor_index < connection_count; ++neighbor_index)
         {
-            connections[neighbor_index] *= factor;
+            uint32_t neighbor_id = neighbors[neighbor_index];
+            tx_modifiers[neighbor_id] *= factor;
         }
     }
 }
@@ -186,8 +165,8 @@ void neighbor_intervention(uint32_t step, Configuration& config, SimulationState
     uint32_t gridX = (state.population_size + block.x - 1) / block.x;
     dim3 grid(gridX, 1, 1);
 
-    IND_TYPE* queue = ((step & 1) ? state.infected_individuals_odd_time_steps : state.infected_individuals_even_time_steps);
-    neighbor_intervention_kernel<<<grid, block>>>( state.counters->infected_currently, queue, state.connect_m, config.max_connections, factor );
+    IND_TYPE* infected = ((step & 1) ? state.infected_individuals_odd_time_steps : state.infected_individuals_even_time_steps);
+    neighbor_intervention_kernel<<<grid, block>>>( state.counters->infected_currently, infected, state.network_m, config.max_connections, state.tx_modifiers, factor );
 
     CheckReturn(cudaDeviceSynchronize());
     CheckReturn(cudaGetLastError());
@@ -204,28 +183,52 @@ for each infectious node k in network:
         add attribute[target_attribute] to attribute_values
 for each node k in network:
     if attribute[k][target_attribute] is in attribute_values:
-        // rx_mod[k] = rx_mod[k] * attenuation_factor
+        // tx_mod[k] = tx_mod[k] * attenuation_factor
         connection_weights *= attenuation_factor
         add (duration, attenuation_factor) to beta_modifier_tracker[k] vector.
 */
 
-__global__ void node_matching_intervention_kernel(
-
-)
+__global__ void attribute_collection_kernel(uint32_t infected_count, IND_TYPE* infected, ATTR_TYPE* attributes, uint8_t* scratch)
 {
-
+    uint32_t infected_index = (blockDim.x * blockIdx.x) + threadIdx.x;
+    if ( infected_index < infected_count )
+    {
+        IND_TYPE individual_id = infected[infected_index];
+        ATTR_TYPE attribute = attributes[individual_id];
+        scratch[attribute] = 1;
+    }
 }
 
-void node_matching_intervention(uint32_t step, SimulationState& state, uint32_t attribute, uint16_t duration, CON_TYPE factor)
+__global__ void node_matching_intervention_kernel(uint32_t population_size, ATTR_TYPE* attributes, uint8_t* scratch, CON_TYPE* tx_modifiers, CON_TYPE factor)
 {
+    uint32_t individual_index = (blockDim.x * blockIdx.x) + threadIdx.x;
+    if ( individual_index < population_size )
+    {
+        ATTR_TYPE attribute = attributes[individual_index];
+        if ( scratch[attribute] != 0 )
+        {
+            tx_modifiers[individual_index] *= factor;
+        }
+    }
+}
+
+void node_matching_intervention(uint32_t step, SimulationState& state, const std::string& attribute, uint16_t duration, CON_TYPE factor)
+{
+    CheckReturn(cudaMemset(state.scratch, uint8_t(0), (1 << (sizeof(ATTR_TYPE)*8)) * sizeof(uint8_t)));
+
     uint32_t blockX = BLOCK_SIZE;
     dim3 block(blockX, 1, 1);
-    uint32_t gridX = max((state.counters->infected_currently + block.x - 1) / block.x, 1);
+    uint32_t gridX = max(((1 << (sizeof(ATTR_TYPE)*8)) + block.x - 1), 1);
     dim3 grid(gridX, 1, 1);
 
-    // uint32_t* infected_queue = ((step & 1) ? state.infected_individuals_odd_time_steps : state.infected_individuals_even_time_steps);
+    IND_TYPE* infected = ((step & 1) ? state.infected_individuals_odd_time_steps : state.infected_individuals_even_time_steps);
+    ATTR_TYPE* attributes(state.attributes.at( attribute ));
+    attribute_collection_kernel<<<grid, block>>>(state.counters->infected_currently, infected, attributes, state.scratch);
 
-    node_matching_intervention_kernel<<<grid, block>>>();
+    gridX = max((state.counters->infected_currently + block.x - 1) / block.x, 1);
+    grid = dim3(gridX, 1, 1);
+
+    node_matching_intervention_kernel<<<grid, block>>>(state.population_size, attributes, state.scratch, state.tx_modifiers, factor);
 }
 
 /*
@@ -241,7 +244,7 @@ for each infectious node k in network:
             implement_intervention[j] = 1
 for each node k in implement_intervention:
     if implement_intervention[k] == 1 then:
-        rx_mod[k] = rx_mod[k] * attenuation_factor
+        tx_mod[k] = tx_mod[k] * attenuation_factor
         add (duration, attenuation_factor) to beta_modifier_tracker[k] vector.
 */
 
@@ -251,7 +254,7 @@ __global__ void neighbor_matching_intervention_kernel(
     ATTR_TYPE* attributes,
     IND_TYPE* network_m,
     uint32_t connection_count,
-    CON_TYPE* rx_modifiers,
+    CON_TYPE* tx_modifiers,
     CON_TYPE factor
 )
 {
@@ -266,7 +269,7 @@ __global__ void neighbor_matching_intervention_kernel(
             IND_TYPE target_individual = neighbors[neighbor_index];
             if ( attributes[target_individual] == attribute )
             {
-                rx_modifiers[target_individual] *= factor;
+                tx_modifiers[target_individual] *= factor;
             }
         }
     }
@@ -288,7 +291,7 @@ void neighbor_matching_intervention(uint32_t step, SimulationState& state, const
         attributes,
         state.network_m,
         state.max_connections,
-        state.rx_modifiers,
+        state.tx_modifiers,
         factor
     );
 }
@@ -406,8 +409,14 @@ void AddIntervention( IIntervention* intervention, std::string& trigger, uint32_
     }
 }
 
-void load_interventions(const std::string filename)
+void load_interventions(const std::string& filename)
 {
+    if ( filename.size() == 0 )
+    {
+        printf( "No campaign specified.\n" );
+        return;
+    }
+
     io::CSVReader<8, io::trim_chars<' ', '\t'>, io::no_quote_escape<','>, io::throw_on_overflow, io::single_line_comment<'#'>> reader(filename);    // allow comment lines prefixed with '#'
     reader.read_header(io::ignore_extra_column, "tag", "type", "trigger", "trigger_value", "duration", "factor", "attribute", "attribute_value");
     std::string tag;
