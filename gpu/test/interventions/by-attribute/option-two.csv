@@ -1,0 +1,2 @@
+tag,type,trigger,trigger_value,duration,factor,attribute,attribute_value
+scheduled,1,TIME,40,60,0.125,ages,1

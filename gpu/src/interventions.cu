@@ -216,18 +216,16 @@ void node_matching_intervention(uint32_t step, SimulationState& state, const std
 {
     CheckReturn(cudaMemset(state.scratch, uint8_t(0), (1 << (sizeof(ATTR_TYPE)*8)) * sizeof(uint8_t)));
 
-    uint32_t blockX = BLOCK_SIZE;
-    dim3 block(blockX, 1, 1);
-    uint32_t gridX = max(((1 << (sizeof(ATTR_TYPE)*8)) + block.x - 1), 1);
+    dim3 block(BLOCK_SIZE, 1, 1);
+    uint32_t gridX = max((state.counters->infected_currently + block.x - 1) / block.x, 1);  // the first kernel just inspects infectious individuals
     dim3 grid(gridX, 1, 1);
 
     IND_TYPE* infected = ((step & 1) ? state.infected_individuals_odd_time_steps : state.infected_individuals_even_time_steps);
     ATTR_TYPE* attributes(state.attributes.at( attribute ));
     attribute_collection_kernel<<<grid, block>>>(state.counters->infected_currently, infected, attributes, state.scratch);
 
-    gridX = max((state.counters->infected_currently + block.x - 1) / block.x, 1);
+    gridX = max((state.population_size + block.x - 1) / block.x, 1);    // now consider everyone for matching attributes
     grid = dim3(gridX, 1, 1);
-
     node_matching_intervention_kernel<<<grid, block>>>(state.population_size, attributes, state.scratch, state.tx_modifiers, factor);
 }
 
@@ -313,8 +311,8 @@ AttributeIntervention::AttributeIntervention(const std::string& tag, uint32_t du
 
 void AttributeIntervention::Apply(uint32_t step, Configuration& config, SimulationState& state)
 {
-    // TBD
     printf("Applying AttributeIntervention '%s' at time %d\n", tag.c_str(), step);
+    attribute_intervention(step, state, attribute, attribute_value, factor);
 }
 
 class NeighborIntervention : public BaseIntervention
@@ -334,7 +332,6 @@ NeighborIntervention::NeighborIntervention(const std::string& tag, uint32_t dura
 
 void NeighborIntervention::Apply(uint32_t step, Configuration& config, SimulationState& state)
 {
-    // TBD
     printf("Applying NeighborIntervention '%s' at time %d\n", tag.c_str(), step);
     neighbor_intervention(step, config, state, factor);
 }
@@ -356,8 +353,8 @@ NodeMatchingIntervention::NodeMatchingIntervention(const std::string& tag, uint3
 
 void NodeMatchingIntervention::Apply(uint32_t step, Configuration& config, SimulationState& state)
 {
-    // TBD
-    printf("Applying NodeMatchingIntervention '%s' at time %d\n", tag.c_str(), step);
+    printf("Applying NodeMatchingIntervention '%s' (match '%s', attenuate %f) at time %d\n", tag.c_str(), attribute.c_str(), float(factor), step);
+    node_matching_intervention(step, state, attribute, duration, factor);
 }
 
 class NeighborMatchingIntervention : public BaseIntervention
