@@ -134,7 +134,7 @@ struct SimulationState {
     uint32_t        max_interventions;
     uint8_t*        active_interventions;
     TIMER_TYPE*     intervention_timers;
-    CON_TYPE*       intervention_effects;
+    CON_TYPE*       intervention_modifiers;
 
     SimulationState()
         : population_size(0)
@@ -162,6 +162,6 @@ struct SimulationState {
         , max_interventions(8)
         , active_interventions(nullptr)
         , intervention_timers(nullptr)
-        , intervention_effects(nullptr)
+        , intervention_modifiers(nullptr)
     {}
 };

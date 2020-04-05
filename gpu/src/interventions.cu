@@ -29,6 +29,46 @@ BaseIntervention::BaseIntervention(const std::string& tag, uint32_t duration, fl
 static std::map<uint32_t, std::vector<IIntervention*>> scheduled_interventions;
 static std::vector<std::pair<uint32_t, IIntervention*>> triggered_interventions;
 
+__global__ void age_interventions(
+    uint32_t population_size,
+    uint8_t* active_interventions,
+    TIMER_TYPE* intervention_timers,
+    uint32_t max_interventions,
+    CON_TYPE* intervention_modifiers,
+    CON_TYPE* tx_modifiers
+)
+{
+    uint32_t individual_id = (blockDim.x * blockIdx.x) + threadIdx.x;
+
+    if ( individual_id < population_size )
+    {
+        uint32_t active_ivs = uint32_t(active_interventions[individual_id]);                // active interventions for this node
+        TIMER_TYPE* timers = intervention_timers + (individual_id * max_interventions);     // pointer to timers for this node's interventions
+        CON_TYPE* modifiers = intervention_modifiers + (individual_id * max_interventions); // pointer to modifiers for this node's interventions
+        CON_TYPE tx_modifier = CON_TYPE(1.0f);                                              // current tx_modifier, starts at 1.0
+        uint8_t next_iv = 0;                                                                // next intervention slot (index)
+
+        for ( uint32_t iv_index = 0; iv_index < active_ivs; ++iv_index )                    // iterate over active interventions
+        {
+            uint8_t timer = timers[iv_index] - 1;                                           // get this intervention's timer and decrement
+            if ( timer > 0 )                                                                // if still active...
+            {
+                CON_TYPE modifier = modifiers[iv_index];                                    // get its modifier
+                tx_modifier *= modifier;                                                    // update current tx_modifier
+                timers[next_iv] = timer;                                                    // put remaining timer into next intervention slot (index)
+                modifiers[next_iv] = modifier;                                              // copy this interventions modifier to next intervention slot (index)
+                ++next_iv;                                                                  // increment index to next intervention slot (index)
+            }
+        }
+
+        if ( next_iv != active_ivs )                                                        // if we no longer have as many active interventions...
+        {
+            active_interventions[individual_id] = uint8_t(next_iv);                         // update the active interventions counter for this node
+            tx_modifiers[individual_id] = tx_modifier;                                      // update the node's tx_modifier
+        }
+    }
+}
+
 void process_interventions(uint32_t step, Configuration& config, SimulationState& state)
 {
     uint32_t infectious_count = state.counters->infected_currently;
@@ -41,6 +81,19 @@ void process_interventions(uint32_t step, Configuration& config, SimulationState
         For each active intervention on each node k that reaches 0:
             rx_mod[k] = rx_mod[k] / (1 – a[j])
     */
+
+    dim3 block(BLOCK_SIZE, 1, 1);
+    dim3 grid((state.population_size + block.x - 1) / block.x, 1, 1);
+
+    age_interventions<<<grid, block>>>(
+        state.population_size,
+        state.active_interventions,
+        state.intervention_timers,
+        state.max_interventions,
+        state.intervention_modifiers,
+        state.tx_modifiers
+    );
+
     /*
     [trigger new interventions] for each intervention:
         if ( ( trigger_type == “time” AND t == trigger_value ) ||
@@ -96,7 +149,12 @@ __global__ void attribute_intervention_kernel(
     ATTR_TYPE* attributes,
     ATTR_TYPE target_value,
     CON_TYPE* tx_modifiers,
-    float factor
+    float factor,
+    uint8_t* active_interventions,
+    TIMER_TYPE* intervention_timers,
+    uint32_t max_interventions,
+    uint8_t duration,
+    CON_TYPE* intervention_effects
 )
 {
     uint32_t individual_id = (blockDim.x * blockIdx.x) + threadIdx.x;
@@ -106,6 +164,12 @@ __global__ void attribute_intervention_kernel(
         if ( attributes[individual_id] == target_value )
         {
             tx_modifiers[individual_id] *= factor;
+
+            uint32_t next_intervention = active_interventions[individual_id]++;
+            TIMER_TYPE* timers = intervention_timers + (individual_id * max_interventions);
+            timers[next_intervention] = duration;
+            CON_TYPE* effects = intervention_effects + (individual_id * max_interventions);
+            effects[next_intervention] = factor;
         }
     }
 }
@@ -155,7 +219,12 @@ __global__ void intervention_kernel(
     uint32_t population_size,
     uint8_t* intervene,
     CON_TYPE* tx_modifiers,
-    float factor
+    float factor,
+    uint8_t* active_interventions,
+    TIMER_TYPE* intervention_timers,
+    uint32_t max_interventions,
+    uint8_t duration,
+    CON_TYPE* intervention_effects
 )
 {
     // Assumes that state.intervene has been set with identify_neighbors_kernel (above).
@@ -167,6 +236,12 @@ __global__ void intervention_kernel(
         if ( intervene[individual_id] != 0 )
         {
             tx_modifiers[individual_id] *= factor;
+
+            uint32_t next_intervention = active_interventions[individual_id]++;
+            TIMER_TYPE* timers = intervention_timers + (individual_id * max_interventions);
+            timers[next_intervention] = duration;
+            CON_TYPE* effects = intervention_effects + (individual_id * max_interventions);
+            effects[next_intervention] = factor;
         }
     }
 }
@@ -198,7 +273,18 @@ __global__ void attribute_collection_kernel(uint32_t infected_count, IND_TYPE* i
     }
 }
 
-__global__ void node_matching_intervention_kernel(uint32_t population_size, ATTR_TYPE* attributes, uint8_t* scratch, CON_TYPE* tx_modifiers, CON_TYPE factor)
+__global__ void node_matching_intervention_kernel(
+    uint32_t population_size,
+    ATTR_TYPE* attributes,
+    uint8_t* scratch,
+    CON_TYPE* tx_modifiers,
+    CON_TYPE factor,
+    uint8_t* active_interventions,
+    TIMER_TYPE* intervention_timers,
+    uint32_t max_interventions,
+    uint8_t duration,
+    CON_TYPE* intervention_effects
+)
 {
     uint32_t individual_id = (blockDim.x * blockIdx.x) + threadIdx.x;
     if ( individual_id < population_size )
@@ -207,6 +293,12 @@ __global__ void node_matching_intervention_kernel(uint32_t population_size, ATTR
         if ( scratch[attribute] != 0 )
         {
             tx_modifiers[individual_id] *= factor;
+
+            uint32_t next_intervention = active_interventions[individual_id]++;
+            TIMER_TYPE* timers = intervention_timers + (individual_id * max_interventions);
+            timers[next_intervention] = duration;
+            CON_TYPE* effects = intervention_effects + (individual_id * max_interventions);
+            effects[next_intervention] = factor;
         }
     }
 }
@@ -285,7 +377,18 @@ void AttributeIntervention::Apply(uint32_t step, Configuration& config, Simulati
 
     ATTR_TYPE* attributes(state.attributes.at(attribute));
 
-    attribute_intervention_kernel<<<grid, block>>>( state.population_size, attributes, attribute_value, state.tx_modifiers, factor);
+    attribute_intervention_kernel<<<grid, block>>>(
+        state.population_size,
+        attributes,
+        attribute_value,
+        state.tx_modifiers,
+        factor,
+        state.active_interventions,
+        state.intervention_timers,
+        state.max_interventions,
+        duration,
+        state.intervention_modifiers
+    );
 
     CheckReturn(cudaDeviceSynchronize());
     CheckReturn(cudaGetLastError());
@@ -318,7 +421,17 @@ void NeighborIntervention::Apply(uint32_t step, Configuration& config, Simulatio
     identify_neighbors_kernel<<<grid, block>>>( state.counters->infected_currently, infected, state.network_m, state.max_connections, state.intervene );
 
     grid = dim3((state.population_size + block.x - 1) / block.x, 1, 1); // iterate over all nodes
-    intervention_kernel<<<grid, block>>>( state.population_size, state.intervene, state.tx_modifiers, factor );
+    intervention_kernel<<<grid, block>>>(
+        state.population_size,
+        state.intervene,
+        state.tx_modifiers,
+        factor,
+        state.active_interventions,
+        state.intervention_timers,
+        state.max_interventions,
+        duration,
+        state.intervention_modifiers
+    );
 
     CheckReturn(cudaDeviceSynchronize());
     CheckReturn(cudaGetLastError());
@@ -357,7 +470,18 @@ void NodeMatchingIntervention::Apply(uint32_t step, Configuration& config, Simul
     attribute_collection_kernel<<<grid, block>>>(state.counters->infected_currently, infected, attributes, state.scratch);
 
     grid = dim3(max((state.population_size + block.x - 1) / block.x, 1), 1, 1); // now consider everyone for matching attributes
-    node_matching_intervention_kernel<<<grid, block>>>(state.population_size, attributes, state.scratch, state.tx_modifiers, factor);
+    node_matching_intervention_kernel<<<grid, block>>>(
+        state.population_size,
+        attributes,
+        state.scratch,
+        state.tx_modifiers,
+        factor,
+        state.active_interventions,
+        state.intervention_timers,
+        state.max_interventions,
+        duration,
+        state.intervention_modifiers
+    );
 
     CheckReturn(cudaDeviceSynchronize());
     CheckReturn(cudaGetLastError());
@@ -404,7 +528,17 @@ void NeighborMatchingIntervention::Apply(uint32_t step, Configuration& config, S
     );
 
     grid = dim3(max((state.population_size + block.x - 1) / block.x, 1), 1, 1); // now consider everyone for matching attributes
-    intervention_kernel<<<grid, block>>>(state.population_size, state.intervene, state.tx_modifiers, factor);
+    intervention_kernel<<<grid, block>>>(
+        state.population_size,
+        state.intervene,
+        state.tx_modifiers,
+        factor,
+        state.active_interventions,
+        state.intervention_timers,
+        state.max_interventions,
+        duration,
+        state.intervention_modifiers
+    );
 
     CheckReturn(cudaDeviceSynchronize());
     CheckReturn(cudaGetLastError());

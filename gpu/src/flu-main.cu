@@ -520,7 +520,7 @@ void AllocateState(SimulationState& state, Configuration& config)
 
     CheckReturn(cudaMallocManaged(&state.active_interventions,                 config.population_size * sizeof(uint8_t)));
     CheckReturn(cudaMallocManaged(&state.intervention_timers,                  config.population_size * state.max_interventions * sizeof(TIMER_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.intervention_effects,                 config.population_size * state.max_interventions * sizeof(CON_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.intervention_modifiers,               config.population_size * state.max_interventions * sizeof(CON_TYPE)));
 }
 
 void InitializePrngStates(SimulationState& state, Configuration& config);
