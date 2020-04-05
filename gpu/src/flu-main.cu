@@ -515,6 +515,8 @@ void AllocateState(SimulationState& state, Configuration& config)
     CheckReturn(cudaMallocManaged(&state.tx_events,                            config.population_size * sizeof(TxEvent)));
     CheckReturn(cudaMallocManaged(&state.counters,                             sizeof(Counters)));
     CheckReturn(cudaMallocManaged(&state.scratch,                              (1 << (sizeof(ATTR_TYPE)*8)) * sizeof(uint8_t)));
+    CheckReturn(cudaMallocManaged(&state.intervene,                            config.population_size * sizeof(uint8_t)));
+    CheckReturn(cudaMallocManaged(&state.modifier,                             config.population_size * sizeof(CON_TYPE)));
 }
 
 void InitializePrngStates(SimulationState& state, Configuration& config);

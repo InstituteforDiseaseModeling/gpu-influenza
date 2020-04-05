@@ -128,6 +128,8 @@ struct SimulationState {
     Counters*       counters;
     std::map<std::string, ATTR_TYPE*> attributes;
     uint8_t*        scratch;
+    uint8_t*        intervene;
+    CON_TYPE*       modifier;
 
     SimulationState()
         : population_size(0)
@@ -149,5 +151,7 @@ struct SimulationState {
         , counters(nullptr)
         , attributes()
         , scratch(nullptr)
+        , intervene(nullptr)
+        , modifier(nullptr)
     {}
 };

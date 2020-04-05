@@ -2,6 +2,7 @@
 ** copyright banner
 */
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <map>
@@ -95,24 +96,24 @@ __global__ void attribute_intervention_kernel(
     ATTR_TYPE* attributes,
     ATTR_TYPE target_value,
     CON_TYPE* tx_modifiers,
-    float factor)
+    float factor
+)
 {
-    uint32_t individual_index = (blockDim.x * blockIdx.x) + threadIdx.x;
-    if (individual_index < population_size)
+    uint32_t individual_id = (blockDim.x * blockIdx.x) + threadIdx.x;
+
+    if ( individual_id < population_size )
     {
-        if ( attributes[individual_index] == target_value )
+        if ( attributes[individual_id] == target_value )
         {
-            tx_modifiers[individual_index] *= factor;
+            tx_modifiers[individual_id] *= factor;
         }
     }
 }
 
 void attribute_intervention(uint32_t step, SimulationState& state, const std::string& attribute_name, uint16_t target_value, float attenuation)
 {
-    uint32_t blockX = BLOCK_SIZE;
-    dim3 block(blockX, 1, 1);
-    uint32_t gridX = (state.population_size + block.x - 1) / block.x;
-    dim3 grid(gridX, 1, 1);
+    dim3 block(BLOCK_SIZE, 1, 1);
+    dim3 grid((state.population_size + block.x - 1) / block.x, 1, 1);
 
     ATTR_TYPE* attributes(state.attributes.at(attribute_name));
 
@@ -136,37 +137,63 @@ neighbor_intervention(): The Intervention event is applied to all neighbors of e
             add (duration, attenuation_factor) to beta_modifier_tracker[k] vector.
 */
 
-__global__ void neighbor_intervention_kernel(
+// Individuals might be neighbors of more than one infected individual, we identify them here so the intervention is only applied once.
+
+__global__ void identify_neighbors_kernel(
     uint32_t infected_count,
     IND_TYPE* infected,
     IND_TYPE* network_m,
     uint32_t connection_count,
-    CON_TYPE* tx_modifiers,
-    float factor
+    uint8_t* intervene
 )
 {
-    uint32_t individual_index = (blockDim.x * blockIdx.x) + threadIdx.x;
-    if ( individual_index < infected_count )
+    // Assumes that state.intervene has been zeroed.
+
+    uint32_t infected_index = (blockDim.x * blockIdx.x) + threadIdx.x;
+
+    if ( infected_index < infected_count )
     {
-        uint32_t individual_id = infected[individual_index];
+        uint32_t individual_id = infected[infected_index];
         IND_TYPE* neighbors = network_m + (connection_count * individual_id);
         for (uint32_t neighbor_index = 0; neighbor_index < connection_count; ++neighbor_index)
         {
             uint32_t neighbor_id = neighbors[neighbor_index];
-            tx_modifiers[neighbor_id] *= factor;
+            intervene[neighbor_id] = 1;
+        }
+    }
+}
+
+__global__ void intervention_kernel(
+    uint32_t population_size,
+    uint8_t* intervene,
+    CON_TYPE* tx_modifiers,
+    float factor
+)
+{
+    // Assumes that state.intervene has been set with identify_neighbors_kernel (above).
+
+    uint32_t individual_id = (blockDim.x * blockIdx.x) + threadIdx.x;
+
+    if ( individual_id < population_size )
+    {
+        if ( intervene[individual_id] != 0 )
+        {
+            tx_modifiers[individual_id] *= factor;
         }
     }
 }
 
 void neighbor_intervention(uint32_t step, Configuration& config, SimulationState& state, float factor)
 {
-    uint32_t blockX = BLOCK_SIZE;
-    dim3 block(blockX, 1, 1);
-    uint32_t gridX = (state.population_size + block.x - 1) / block.x;
-    dim3 grid(gridX, 1, 1);
+    CheckReturn(cudaMemset( state.intervene, 0, state.population_size * sizeof(uint8_t) ));
 
     IND_TYPE* infected = ((step & 1) ? state.infected_individuals_odd_time_steps : state.infected_individuals_even_time_steps);
-    neighbor_intervention_kernel<<<grid, block>>>( state.counters->infected_currently, infected, state.network_m, config.max_connections, state.tx_modifiers, factor );
+    dim3 block(BLOCK_SIZE, 1, 1);
+    dim3 grid((state.counters->infected_currently + block.x - 1) / block.x, 1, 1);  // iterate over currently infectious nodes
+    identify_neighbors_kernel<<<grid, block>>>( state.counters->infected_currently, infected, state.network_m, config.max_connections, state.intervene );
+
+    grid = dim3((state.population_size + block.x - 1) / block.x, 1, 1); // iterate over all nodes
+    intervention_kernel<<<grid, block>>>( state.population_size, state.intervene, state.tx_modifiers, factor );
 
     CheckReturn(cudaDeviceSynchronize());
     CheckReturn(cudaGetLastError());
@@ -201,31 +228,33 @@ __global__ void attribute_collection_kernel(uint32_t infected_count, IND_TYPE* i
 
 __global__ void node_matching_intervention_kernel(uint32_t population_size, ATTR_TYPE* attributes, uint8_t* scratch, CON_TYPE* tx_modifiers, CON_TYPE factor)
 {
-    uint32_t individual_index = (blockDim.x * blockIdx.x) + threadIdx.x;
-    if ( individual_index < population_size )
+    uint32_t individual_id = (blockDim.x * blockIdx.x) + threadIdx.x;
+    if ( individual_id < population_size )
     {
-        ATTR_TYPE attribute = attributes[individual_index];
+        ATTR_TYPE attribute = attributes[individual_id];
         if ( scratch[attribute] != 0 )
         {
-            tx_modifiers[individual_index] *= factor;
+            tx_modifiers[individual_id] *= factor;
         }
     }
 }
 
 void node_matching_intervention(uint32_t step, SimulationState& state, const std::string& attribute, uint16_t duration, CON_TYPE factor)
 {
+    // 1. zero out scratch space
+    // 2. mark scratch[attribute_value] = 1 for given attribute from infected individuals
+    // 3. apply intervention to all individuals with same attribute_value (i.e., scratch[attribute_value] != 0)
+
     CheckReturn(cudaMemset(state.scratch, uint8_t(0), (1 << (sizeof(ATTR_TYPE)*8)) * sizeof(uint8_t)));
 
     dim3 block(BLOCK_SIZE, 1, 1);
-    uint32_t gridX = max((state.counters->infected_currently + block.x - 1) / block.x, 1);  // the first kernel just inspects infectious individuals
-    dim3 grid(gridX, 1, 1);
+    dim3 grid(max((state.counters->infected_currently + block.x - 1) / block.x, 1), 1, 1);  // the first kernel just inspects infectious individuals
 
     IND_TYPE* infected = ((step & 1) ? state.infected_individuals_odd_time_steps : state.infected_individuals_even_time_steps);
     ATTR_TYPE* attributes(state.attributes.at( attribute ));
     attribute_collection_kernel<<<grid, block>>>(state.counters->infected_currently, infected, attributes, state.scratch);
 
-    gridX = max((state.population_size + block.x - 1) / block.x, 1);    // now consider everyone for matching attributes
-    grid = dim3(gridX, 1, 1);
+    grid = dim3(max((state.population_size + block.x - 1) / block.x, 1), 1, 1); // now consider everyone for matching attributes
     node_matching_intervention_kernel<<<grid, block>>>(state.population_size, attributes, state.scratch, state.tx_modifiers, factor);
 }
 
@@ -246,28 +275,32 @@ for each node k in implement_intervention:
         add (duration, attenuation_factor) to beta_modifier_tracker[k] vector.
 */
 
-__global__ void neighbor_matching_intervention_kernel(
+// Individuals might be neighbors of more than one infected individual, we identify them here so the intervention is only applied once.
+
+__global__ void identify_matching_neighbors_kernel(
     uint32_t infected_queue_size,
     uint32_t* infected_queue,
     ATTR_TYPE* attributes,
     IND_TYPE* network_m,
     uint32_t connection_count,
-    CON_TYPE* tx_modifiers,
-    CON_TYPE factor
+    uint8_t* intervene
 )
 {
+    // Assumes that state.intervene has been zeroed.
+
     uint32_t infected_index = (blockDim.x * blockIdx.x) + threadIdx.x;
-    if (infected_index < infected_queue_size)
+
+    if ( infected_index < infected_queue_size )
     {
-        IND_TYPE source_individual = infected_queue[infected_index];
-        ATTR_TYPE attribute = attributes[source_individual];
-        IND_TYPE* neighbors = network_m + (connection_count * source_individual);
+        IND_TYPE source_individual_id = infected_queue[infected_index];
+        ATTR_TYPE attribute = attributes[source_individual_id];
+        IND_TYPE* neighbors = network_m + (connection_count * source_individual_id);
         for (uint32_t neighbor_index = 0; neighbor_index < connection_count; ++neighbor_index)
         {
-            IND_TYPE target_individual = neighbors[neighbor_index];
-            if ( attributes[target_individual] == attribute )
+            IND_TYPE neighbor_id = neighbors[neighbor_index];
+            if ( attributes[neighbor_id] == attribute )
             {
-                tx_modifiers[target_individual] *= factor;
+                intervene[neighbor_id] = 1;
             }
         }
     }
@@ -275,23 +308,29 @@ __global__ void neighbor_matching_intervention_kernel(
 
 void neighbor_matching_intervention(uint32_t step, SimulationState& state, const std::string& attribute_name, CON_TYPE factor)
 {
-    uint32_t blockX = BLOCK_SIZE;
-    dim3 block(blockX, 1, 1);
-    uint32_t gridX = max((state.counters->infected_currently + block.x - 1) / block.x, 1);
-    dim3 grid(gridX, 1, 1);
+    // 1. zero out intervene vector (one entry per node)
+    // 2. identify nodes who are neighbors of an infected node and have a matching attribute value, set intervene[node_id] = 1
+    // 3. apply intervention to all identified nodes (i.e., intervene[node_id] != 0)
+
+    CheckReturn(cudaMemset( state.intervene, 0, state.population_size * sizeof(uint8_t) ));
 
     uint32_t* infected_queue = ((step & 1) ? state.infected_individuals_odd_time_steps : state.infected_individuals_even_time_steps);
     ATTR_TYPE* attributes(state.attributes.at(attribute_name));
 
-    neighbor_matching_intervention_kernel<<<grid, block>>>(
+    dim3 block(BLOCK_SIZE, 1, 1);
+    dim3 grid(max((state.counters->infected_currently + block.x - 1) / block.x, 1), 1, 1);  // the first kernel just inspects infectious individuals
+
+    identify_matching_neighbors_kernel<<<grid, block>>>(
         state.counters->infected_currently,
         infected_queue,
         attributes,
         state.network_m,
         state.max_connections,
-        state.tx_modifiers,
-        factor
+        state.intervene
     );
+
+    grid = dim3(max((state.population_size + block.x - 1) / block.x, 1), 1, 1); // now consider everyone for matching attributes
+    intervention_kernel<<<grid, block>>>(state.population_size, state.intervene, state.tx_modifiers, factor);
 }
 
 class AttributeIntervention : public BaseIntervention
@@ -389,22 +428,8 @@ enum
 #define TIME    ("TIME")
 #define COUNT   ("COUNT")
 
-void AddIntervention( IIntervention* intervention, std::string& trigger, uint32_t trigger_value )
-{
-    if ( trigger == TIME )
-    {
-        scheduled_interventions[trigger_value].push_back( intervention );
-    }
-    else if ( trigger == COUNT )
-    {
-        triggered_interventions.push_back( std::pair<uint32_t, IIntervention*>( trigger_value, intervention ) );
-    }
-    else
-    {
-        fprintf( stderr, "Invalid trigger type, '%s', passed to %s.\n", trigger.c_str(), __FUNCTION__ );
-        exit( 1 );
-    }
-}
+bool ValidateIntervention( const std::string& type, const std::string& trigger, float factor, const std::map<std::string, uint32_t>& map, const std::string& filename );
+void AddIntervention( IIntervention* intervention, std::string& trigger, uint32_t trigger_value );
 
 void load_interventions(const std::string& filename)
 {
@@ -414,27 +439,38 @@ void load_interventions(const std::string& filename)
         return;
     }
 
+    static std::map<std::string, uint32_t> enum_map =
+        {
+            { "1", ATTRIBUTE },        { "ATTRIBUTE", ATTRIBUTE },               { "ATTRIBUTES", ATTRIBUTE },          { "ATTR", ATTRIBUTE },
+            { "2", NEIGHBOR },         { "NEIGHBOR", NEIGHBOR },                 { "NEIGHBORS", NEIGHBOR },
+            { "3", NODEMATCHING },     { "NODEMATCHING", NODEMATCHING },         { "NODEMATCH", NODEMATCHING },
+            { "4", NEIGHBORMATCHING }, { "NEIGHBORMATCHING", NEIGHBORMATCHING }, { "NEIGHBORMATCH", NEIGHBORMATCHING }
+        };
+
     io::CSVReader<8, io::trim_chars<' ', '\t'>, io::no_quote_escape<','>, io::throw_on_overflow, io::single_line_comment<'#'>> reader(filename);    // allow comment lines prefixed with '#'
+
     reader.read_header(io::ignore_extra_column, "tag", "type", "trigger", "trigger_value", "duration", "factor", "attribute", "attribute_value");
+
     std::string tag;
-    uint32_t type;
+    std::string type_string;
     std::string trigger;
     uint32_t trigger_value;
     uint32_t duration;
     float factor;
     std::string attribute;
     uint16_t attribute_value;
-    bool error = false;
-    while(reader.read_row(tag, type, trigger, trigger_value, duration, factor, attribute, attribute_value))
+    bool valid = true;
+
+    while(reader.read_row(tag, type_string, trigger, trigger_value, duration, factor, attribute, attribute_value))
     {
-        if ( (trigger != TIME) and (trigger != COUNT) )
-        {
-            fprintf( stderr, "Invalid trigger '%s' in intervention file '%s'.\n", trigger.c_str(), filename.c_str() );
-            error = true;
-            continue;
-        }
+        transform(type_string.begin(), type_string.end(), type_string.begin(), ::toupper);  // convert to uppercase to be case-insensitive
+        transform(trigger.begin(), trigger.end(), trigger.begin(), ::toupper);              // convert to uppercase to be case-insensitive
+        valid &= ValidateIntervention( type_string, trigger, factor, enum_map, filename );
+        if ( !valid ) continue;
 
         IIntervention* intervention(nullptr);
+
+        uint32_t type = enum_map.at( type_string );
 
         switch (type)
         {
@@ -460,18 +496,57 @@ void load_interventions(const std::string& filename)
 
             default:
                 fprintf(stderr, "Unknown intervention type '%d' in campaign file '%s'.\n", type, filename.c_str());
-                error = true;
+                valid = false;
                 break;
         }
 
-        if ( !error )
+        if ( valid )
         {
             AddIntervention( intervention, trigger, trigger_value );
         }
     }
 
-    if ( error )
+    if ( !valid ) exit( 1 );
+}
+
+bool ValidateIntervention( const std::string& type, const std::string& trigger, float factor, const std::map<std::string, uint32_t>& map, const std::string& filename )
+{
+    bool valid = true;
+
+    if ( (trigger != TIME) and (trigger != COUNT) )
     {
-        exit(1);
+        fprintf( stderr, "Invalid trigger '%s' in intervention file '%s'.\n", trigger.c_str(), filename.c_str() );
+        valid = false;
+    }
+
+    if ( map.find( type ) == map.end() )
+    {
+        fprintf( stderr, "Invalid intervention type '%s' in intervention file '%s'.\n", type.c_str(), filename.c_str() );
+        valid = false;
+    }
+
+    if ( factor < 0.0f )
+    {
+        fprintf( stderr, "Invalid intervention factor %f in intervention file '%s'.\n", factor, filename.c_str() );
+        valid = false;
+    }
+
+    return valid;
+}
+
+void AddIntervention( IIntervention* intervention, std::string& trigger, uint32_t trigger_value )
+{
+    if ( trigger == TIME )
+    {
+        scheduled_interventions[trigger_value].push_back( intervention );
+    }
+    else if ( trigger == COUNT )
+    {
+        triggered_interventions.push_back( std::pair<uint32_t, IIntervention*>( trigger_value, intervention ) );
+    }
+    else
+    {
+        fprintf( stderr, "Invalid trigger type, '%s', passed to %s.\n", trigger.c_str(), __FUNCTION__ );
+        exit( 1 );
     }
 }
