@@ -110,19 +110,6 @@ __global__ void attribute_intervention_kernel(
     }
 }
 
-void attribute_intervention(uint32_t step, SimulationState& state, const std::string& attribute_name, uint16_t target_value, float attenuation)
-{
-    dim3 block(BLOCK_SIZE, 1, 1);
-    dim3 grid((state.population_size + block.x - 1) / block.x, 1, 1);
-
-    ATTR_TYPE* attributes(state.attributes.at(attribute_name));
-
-    attribute_intervention_kernel<<<grid, block>>>( state.population_size, attributes, target_value, state.tx_modifiers, attenuation);
-
-    CheckReturn(cudaDeviceSynchronize());
-    CheckReturn(cudaGetLastError());
-}
-
 /*
 neighbor_intervention(): The Intervention event is applied to all neighbors of each infectious node.
     read duration, and attenuation_factor
@@ -138,6 +125,7 @@ neighbor_intervention(): The Intervention event is applied to all neighbors of e
 */
 
 // Individuals might be neighbors of more than one infected individual, we identify them here so the intervention is only applied once.
+// Actual tx_modifier change is applied separately.
 
 __global__ void identify_neighbors_kernel(
     uint32_t infected_count,
@@ -183,22 +171,6 @@ __global__ void intervention_kernel(
     }
 }
 
-void neighbor_intervention(uint32_t step, Configuration& config, SimulationState& state, float factor)
-{
-    CheckReturn(cudaMemset( state.intervene, 0, state.population_size * sizeof(uint8_t) ));
-
-    IND_TYPE* infected = ((step & 1) ? state.infected_individuals_odd_time_steps : state.infected_individuals_even_time_steps);
-    dim3 block(BLOCK_SIZE, 1, 1);
-    dim3 grid((state.counters->infected_currently + block.x - 1) / block.x, 1, 1);  // iterate over currently infectious nodes
-    identify_neighbors_kernel<<<grid, block>>>( state.counters->infected_currently, infected, state.network_m, config.max_connections, state.intervene );
-
-    grid = dim3((state.population_size + block.x - 1) / block.x, 1, 1); // iterate over all nodes
-    intervention_kernel<<<grid, block>>>( state.population_size, state.intervene, state.tx_modifiers, factor );
-
-    CheckReturn(cudaDeviceSynchronize());
-    CheckReturn(cudaGetLastError());
-}
-
 /*
 node_matching_intervention(): In this case, the intervention event is applied to all nodes whose
 attribute value matches the value of the same attribute in the infectious node.
@@ -239,25 +211,6 @@ __global__ void node_matching_intervention_kernel(uint32_t population_size, ATTR
     }
 }
 
-void node_matching_intervention(uint32_t step, SimulationState& state, const std::string& attribute, uint16_t duration, CON_TYPE factor)
-{
-    // 1. zero out scratch space
-    // 2. mark scratch[attribute_value] = 1 for given attribute from infected individuals
-    // 3. apply intervention to all individuals with same attribute_value (i.e., scratch[attribute_value] != 0)
-
-    CheckReturn(cudaMemset(state.scratch, uint8_t(0), (1 << (sizeof(ATTR_TYPE)*8)) * sizeof(uint8_t)));
-
-    dim3 block(BLOCK_SIZE, 1, 1);
-    dim3 grid(max((state.counters->infected_currently + block.x - 1) / block.x, 1), 1, 1);  // the first kernel just inspects infectious individuals
-
-    IND_TYPE* infected = ((step & 1) ? state.infected_individuals_odd_time_steps : state.infected_individuals_even_time_steps);
-    ATTR_TYPE* attributes(state.attributes.at( attribute ));
-    attribute_collection_kernel<<<grid, block>>>(state.counters->infected_currently, infected, attributes, state.scratch);
-
-    grid = dim3(max((state.population_size + block.x - 1) / block.x, 1), 1, 1); // now consider everyone for matching attributes
-    node_matching_intervention_kernel<<<grid, block>>>(state.population_size, attributes, state.scratch, state.tx_modifiers, factor);
-}
-
 /*
 neighbor_matching_intervention(): In this case, the intervention event is applied to all neighboring
 nodes whose attribute value matches the value of the same attribute in the infectious node.
@@ -276,6 +229,7 @@ for each node k in implement_intervention:
 */
 
 // Individuals might be neighbors of more than one infected individual, we identify them here so the intervention is only applied once.
+// Actual tx_modifier change is applied separately.
 
 __global__ void identify_matching_neighbors_kernel(
     uint32_t infected_queue_size,
@@ -295,6 +249,7 @@ __global__ void identify_matching_neighbors_kernel(
         IND_TYPE source_individual_id = infected_queue[infected_index];
         ATTR_TYPE attribute = attributes[source_individual_id];
         IND_TYPE* neighbors = network_m + (connection_count * source_individual_id);
+
         for (uint32_t neighbor_index = 0; neighbor_index < connection_count; ++neighbor_index)
         {
             IND_TYPE neighbor_id = neighbors[neighbor_index];
@@ -304,33 +259,6 @@ __global__ void identify_matching_neighbors_kernel(
             }
         }
     }
-}
-
-void neighbor_matching_intervention(uint32_t step, SimulationState& state, const std::string& attribute_name, CON_TYPE factor)
-{
-    // 1. zero out intervene vector (one entry per node)
-    // 2. identify nodes who are neighbors of an infected node and have a matching attribute value, set intervene[node_id] = 1
-    // 3. apply intervention to all identified nodes (i.e., intervene[node_id] != 0)
-
-    CheckReturn(cudaMemset( state.intervene, 0, state.population_size * sizeof(uint8_t) ));
-
-    uint32_t* infected_queue = ((step & 1) ? state.infected_individuals_odd_time_steps : state.infected_individuals_even_time_steps);
-    ATTR_TYPE* attributes(state.attributes.at(attribute_name));
-
-    dim3 block(BLOCK_SIZE, 1, 1);
-    dim3 grid(max((state.counters->infected_currently + block.x - 1) / block.x, 1), 1, 1);  // the first kernel just inspects infectious individuals
-
-    identify_matching_neighbors_kernel<<<grid, block>>>(
-        state.counters->infected_currently,
-        infected_queue,
-        attributes,
-        state.network_m,
-        state.max_connections,
-        state.intervene
-    );
-
-    grid = dim3(max((state.population_size + block.x - 1) / block.x, 1), 1, 1); // now consider everyone for matching attributes
-    intervention_kernel<<<grid, block>>>(state.population_size, state.intervene, state.tx_modifiers, factor);
 }
 
 class AttributeIntervention : public BaseIntervention
@@ -351,7 +279,16 @@ AttributeIntervention::AttributeIntervention(const std::string& tag, uint32_t du
 void AttributeIntervention::Apply(uint32_t step, Configuration& config, SimulationState& state)
 {
     printf("Applying AttributeIntervention '%s' at time %d\n", tag.c_str(), step);
-    attribute_intervention(step, state, attribute, attribute_value, factor);
+
+    dim3 block(BLOCK_SIZE, 1, 1);
+    dim3 grid((state.population_size + block.x - 1) / block.x, 1, 1);
+
+    ATTR_TYPE* attributes(state.attributes.at(attribute));
+
+    attribute_intervention_kernel<<<grid, block>>>( state.population_size, attributes, attribute_value, state.tx_modifiers, factor);
+
+    CheckReturn(cudaDeviceSynchronize());
+    CheckReturn(cudaGetLastError());
 }
 
 class NeighborIntervention : public BaseIntervention
@@ -372,7 +309,19 @@ NeighborIntervention::NeighborIntervention(const std::string& tag, uint32_t dura
 void NeighborIntervention::Apply(uint32_t step, Configuration& config, SimulationState& state)
 {
     printf("Applying NeighborIntervention '%s' at time %d\n", tag.c_str(), step);
-    neighbor_intervention(step, config, state, factor);
+
+    CheckReturn(cudaMemset( state.intervene, 0, state.population_size * sizeof(uint8_t) ));
+
+    IND_TYPE* infected = ((step & 1) ? state.infected_individuals_odd_time_steps : state.infected_individuals_even_time_steps);
+    dim3 block(BLOCK_SIZE, 1, 1);
+    dim3 grid((state.counters->infected_currently + block.x - 1) / block.x, 1, 1);  // iterate over currently infectious nodes
+    identify_neighbors_kernel<<<grid, block>>>( state.counters->infected_currently, infected, state.network_m, state.max_connections, state.intervene );
+
+    grid = dim3((state.population_size + block.x - 1) / block.x, 1, 1); // iterate over all nodes
+    intervention_kernel<<<grid, block>>>( state.population_size, state.intervene, state.tx_modifiers, factor );
+
+    CheckReturn(cudaDeviceSynchronize());
+    CheckReturn(cudaGetLastError());
 }
 
 class NodeMatchingIntervention : public BaseIntervention
@@ -393,7 +342,25 @@ NodeMatchingIntervention::NodeMatchingIntervention(const std::string& tag, uint3
 void NodeMatchingIntervention::Apply(uint32_t step, Configuration& config, SimulationState& state)
 {
     printf("Applying NodeMatchingIntervention '%s' (match '%s', attenuate %f) at time %d\n", tag.c_str(), attribute.c_str(), float(factor), step);
-    node_matching_intervention(step, state, attribute, duration, factor);
+
+    // 1. zero out scratch space
+    // 2. mark scratch[attribute_value] = 1 for given attribute from infected individuals
+    // 3. apply intervention to all individuals with same attribute_value (i.e., scratch[attribute_value] != 0)
+
+    CheckReturn(cudaMemset(state.scratch, uint8_t(0), (1 << (sizeof(ATTR_TYPE)*8)) * sizeof(uint8_t)));
+
+    dim3 block(BLOCK_SIZE, 1, 1);
+    dim3 grid(max((state.counters->infected_currently + block.x - 1) / block.x, 1), 1, 1);  // the first kernel just inspects infectious individuals
+
+    IND_TYPE* infected = ((step & 1) ? state.infected_individuals_odd_time_steps : state.infected_individuals_even_time_steps);
+    ATTR_TYPE* attributes(state.attributes.at( attribute ));
+    attribute_collection_kernel<<<grid, block>>>(state.counters->infected_currently, infected, attributes, state.scratch);
+
+    grid = dim3(max((state.population_size + block.x - 1) / block.x, 1), 1, 1); // now consider everyone for matching attributes
+    node_matching_intervention_kernel<<<grid, block>>>(state.population_size, attributes, state.scratch, state.tx_modifiers, factor);
+
+    CheckReturn(cudaDeviceSynchronize());
+    CheckReturn(cudaGetLastError());
 }
 
 class NeighborMatchingIntervention : public BaseIntervention
@@ -414,7 +381,33 @@ NeighborMatchingIntervention::NeighborMatchingIntervention(const std::string& ta
 void NeighborMatchingIntervention::Apply(uint32_t step, Configuration& config, SimulationState& state)
 {
     printf("Applying NeighborMatchingIntervention '%s' at time %d\n", tag.c_str(), step);
-    neighbor_matching_intervention(step, state, attribute, factor);
+
+    // 1. zero out intervene vector (one entry per node)
+    // 2. identify nodes who are neighbors of an infected node and have a matching attribute value, set intervene[node_id] = 1
+    // 3. apply intervention to all identified nodes (i.e., intervene[node_id] != 0)
+
+    CheckReturn(cudaMemset( state.intervene, 0, state.population_size * sizeof(uint8_t) ));
+
+    uint32_t* infected_queue = ((step & 1) ? state.infected_individuals_odd_time_steps : state.infected_individuals_even_time_steps);
+    ATTR_TYPE* attributes(state.attributes.at(attribute));
+
+    dim3 block(BLOCK_SIZE, 1, 1);
+    dim3 grid(max((state.counters->infected_currently + block.x - 1) / block.x, 1), 1, 1);  // the first kernel just inspects infectious individuals
+
+    identify_matching_neighbors_kernel<<<grid, block>>>(
+        state.counters->infected_currently,
+        infected_queue,
+        attributes,
+        state.network_m,
+        state.max_connections,
+        state.intervene
+    );
+
+    grid = dim3(max((state.population_size + block.x - 1) / block.x, 1), 1, 1); // now consider everyone for matching attributes
+    intervention_kernel<<<grid, block>>>(state.population_size, state.intervene, state.tx_modifiers, factor);
+
+    CheckReturn(cudaDeviceSynchronize());
+    CheckReturn(cudaGetLastError());
 }
 
 enum
@@ -461,7 +454,7 @@ void load_interventions(const std::string& filename)
     uint16_t attribute_value;
     bool valid = true;
 
-    while(reader.read_row(tag, type_string, trigger, trigger_value, duration, factor, attribute, attribute_value))
+    while( reader.read_row( tag, type_string, trigger, trigger_value, duration, factor, attribute, attribute_value ) )
     {
         transform(type_string.begin(), type_string.end(), type_string.begin(), ::toupper);  // convert to uppercase to be case-insensitive
         transform(trigger.begin(), trigger.end(), trigger.begin(), ::toupper);              // convert to uppercase to be case-insensitive

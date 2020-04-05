@@ -517,6 +517,10 @@ void AllocateState(SimulationState& state, Configuration& config)
     CheckReturn(cudaMallocManaged(&state.scratch,                              (1 << (sizeof(ATTR_TYPE)*8)) * sizeof(uint8_t)));
     CheckReturn(cudaMallocManaged(&state.intervene,                            config.population_size * sizeof(uint8_t)));
     CheckReturn(cudaMallocManaged(&state.modifier,                             config.population_size * sizeof(CON_TYPE)));
+
+    CheckReturn(cudaMallocManaged(&state.active_interventions,                 config.population_size * sizeof(uint8_t)));
+    CheckReturn(cudaMallocManaged(&state.intervention_timers,                  config.population_size * state.max_interventions * sizeof(TIMER_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.intervention_effects,                 config.population_size * state.max_interventions * sizeof(CON_TYPE)));
 }
 
 void InitializePrngStates(SimulationState& state, Configuration& config);
@@ -697,6 +701,7 @@ void InitializeVectors(SimulationState& state, uint32_t simulation_steps)
     initialize_vectors<<<grid, blocks>>>(state.status_v, state.rx_modifiers, state.tx_modifiers, state.tx_events, state.population_size);
     CheckReturn(cudaDeviceSynchronize());
     CheckReturn(cudaGetLastError());
+    CheckReturn(cudaMemset( state.active_interventions, 0, state.population_size * sizeof(uint8_t) ));
 }
 
 void WriteTransmissionEventsToFile( SimulationState& state, Configuration& config )

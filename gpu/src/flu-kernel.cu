@@ -236,8 +236,8 @@ __global__ void initialize_vectors(
     if ( individual < population_count )
     {
        status_v[individual]                            = STATUS_SUSCEPTIBLE;
-       rx_modifiers[individual]                         = 1.0f;
-       tx_modifiers[individual]                         = 1.0f;
+       rx_modifiers[individual]                        = 1.0f;
+       tx_modifiers[individual]                        = 1.0f;
        transmission_events[individual].source          = -1;
        transmission_events[individual].time_exposed    = -1;
        transmission_events[individual].time_infectious = -1;
