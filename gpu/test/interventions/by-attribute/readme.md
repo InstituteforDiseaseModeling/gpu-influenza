@@ -10,9 +10,9 @@ Reduce transmission probability for those nodes by a fixed factor.
 - **Option 1:** Reduce transmission for working age individuals, 20-60 or attribute value 1, by 15/16 (0.0625) when infectious **count** passes 2500.
 - **Option 2:** Reduce transmission for all individuals by 7/8 (0.125) at **time** 40.
 
-`../../../bin/flu --pop:65536 --con:21 --inf:4 --time:180 --output:tx-baseline.bin --quiet`  
-`../../../bin/flu --pop:65536 --con:21 --inf:4 --time:180 --attr:ages.txt --campaign:option-one.csv --output:tx-one.bin --quiet`  
-`../../../bin/flu --pop:65536 --con:21 --inf:4 --time:180 --attr:ages.txt --campaign:option-two.csv --output:tx-two.bin --quiet`
+`../../../bin/flu --pop:65536 --con:32 --inf:4 --time:180 --output:tx-baseline.bin --quiet`  
+`../../../bin/flu --pop:65536 --con:32 --inf:4 --time:180 --attr:attributes.txt --campaign:option-one.csv --output:tx-one.bin --quiet`  
+`../../../bin/flu --pop:65536 --con:32 --inf:4 --time:180 --attr:attributes.txt --campaign:option-two.csv --output:tx-two.bin --quiet`
 
 ### attributes.txt
 

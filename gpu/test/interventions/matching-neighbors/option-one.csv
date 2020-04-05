@@ -1,0 +1,3 @@
+tag,type,trigger,trigger_value,duration,factor,attribute,attribute_value
+# Reduce transmission for matching neighboring nodes by 15/16 (0.0625) when infectious **count** passes 250.
+threshold,4,COUNT,250,60,0.0625,primary,0
