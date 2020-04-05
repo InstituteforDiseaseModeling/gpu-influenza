@@ -8,6 +8,9 @@ def main(population_size, household_size, output_filename):
 
     attributes = {}
 
+    # TODO - choose household sizes with the following distribution (1-7+): [0.2837, 0.3451, 0.1507, 0.1276, 0.0578, 0.0226, 0.0125]
+    # https://www.statista.com/statistics/242189/disitribution-of-households-in-the-us-by-household-size/
+
     # put people in households of size household_size (default 4)
     households = np.arange(population_size, dtype=np.uint16)    # 0, 1, 2, 3, 4, 5, ..., population_size-1
     households = households // household_size                   # 0, 0, 0, 0, 1, 1, ..., (population_size-1)//household_size
