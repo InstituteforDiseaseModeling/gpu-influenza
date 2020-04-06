@@ -500,8 +500,8 @@ void AllocateState(SimulationState& state, Configuration& config)
 {
     CheckReturn(cudaMallocManaged(&state.network_m,                            config.population_size * config.max_connections * sizeof(IND_TYPE)));
     CheckReturn(cudaMallocManaged(&state.connect_m,                            config.population_size * config.max_connections * sizeof(CON_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.rx_modifiers,                          config.population_size * sizeof(CON_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.tx_modifiers,                          config.population_size * sizeof(CON_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.rx_modifiers,                         config.population_size * sizeof(CON_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.tx_modifiers,                         config.population_size * sizeof(CON_TYPE)));
     CheckReturn(cudaMallocManaged(&state.prngStates,                           config.population_size * sizeof(curandState)));
     CheckReturn(cudaMallocManaged(&state.exposed_individuals_odd_time_steps,   config.population_size * sizeof(IND_TYPE)));
     CheckReturn(cudaMallocManaged(&state.exposed_individuals_even_time_steps,  config.population_size * sizeof(IND_TYPE)));
