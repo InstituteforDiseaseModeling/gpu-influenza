@@ -1,17 +1,22 @@
-#include <cuda_runtime.h>
+/*
+** copyright banner
+*/
 
 #include <chrono>
 #include <cstdio>
-
-#include "block-size.h"
-#include "check-return.h"
-
+#include <fstream>
 #include <iostream>
 #include <iomanip>
 #include <random>
 
+#include "block-size.h"
+#include "check-return.h"
+
 #include "flu-kernel.h"
 #include "flu-main.h"
+
+#include "attributes.h"
+#include "interventions.h"
 
 /*
 
@@ -64,22 +69,25 @@ int main(int argc, const char* argv[])
     uint32_t vac_start = (config.vac_num > 0) ? config.vac_times[0] : config.simulation_steps;
 
     DisplayNetwork( state );
-    DisplayInfected( state.queue_a_exp, state.timers_a_exp, state.counters->exposed_currently,
-                     state.queue_a_inf, state.timers_a_inf, state.counters->infected_currently );
+    DisplayInfected( state.exposed_individuals_odd_time_steps, state.exposure_timers_odd_time_steps, state.counters->exposed_currently,
+                     state.infected_individuals_odd_time_steps, state.infected_timers_odd_time_steps, state.counters->infected_currently );
 
     uint32_t blockX = BLOCK_SIZE;
     dim3 block(blockX, 1, 1);
     uint32_t gridX = (config.population_size + block.x - 1) / block.x;
     dim3 grid(gridX, 1, 1);
 
-    IND_TYPE*   previously_infected;
-    IND_TYPE*   currently_infected;
-    IND_TYPE*   previously_exposed;
-    IND_TYPE*   currently_exposed;
-    TIMER_TYPE* previous_timers_inf;
-    TIMER_TYPE* current_timers_inf;
-    TIMER_TYPE* previous_timers_exp;
-    TIMER_TYPE* current_timers_exp;
+    IND_TYPE*   exposed_last_time_step;
+    IND_TYPE*   exposed_this_time_step;
+    IND_TYPE*   infected_last_time_step;
+    IND_TYPE*   infected_this_time_step;
+    TIMER_TYPE* exposure_timers_last_time_step;
+    TIMER_TYPE* exposure_timers_this_time_step;
+    TIMER_TYPE* infected_timers_last_time_step;
+    TIMER_TYPE* infected_timers_this_time_step;
+
+    load_attributes( config.attributes_filename, state );
+    load_interventions( config.campaign_filename );
 
     auto start = clock();
     uint32_t extinction_duration = 0;
@@ -92,14 +100,14 @@ int main(int argc, const char* argv[])
         state.counters->exposed_previously = state.counters->exposed_currently;
         state.counters->exposed_currently = 0;
 
-        previously_exposed = ((step & 1) ? state.queue_b_exp : state.queue_a_exp);
-        currently_exposed  = ((step & 1) ? state.queue_a_exp : state.queue_b_exp);
-        previous_timers_exp = ((step & 1) ? state.timers_b_exp : state.timers_a_exp);
-        current_timers_exp  = ((step & 1) ? state.timers_a_exp : state.timers_b_exp);
-        previously_infected = ((step & 1) ? state.queue_b_inf : state.queue_a_inf);
-        currently_infected  = ((step & 1) ? state.queue_a_inf : state.queue_b_inf);
-        previous_timers_inf = ((step & 1) ? state.timers_b_inf : state.timers_a_inf);
-        current_timers_inf  = ((step & 1) ? state.timers_a_inf : state.timers_b_inf);
+        exposed_last_time_step         = ((step & 1) ? state.exposed_individuals_even_time_steps : state.exposed_individuals_odd_time_steps);
+        exposed_this_time_step         = ((step & 1) ? state.exposed_individuals_odd_time_steps  : state.exposed_individuals_even_time_steps);
+        exposure_timers_last_time_step = ((step & 1) ? state.exposure_timers_even_time_steps : state.exposure_timers_odd_time_steps);
+        exposure_timers_this_time_step = ((step & 1) ? state.exposure_timers_odd_time_steps  : state.exposure_timers_even_time_steps);
+        infected_last_time_step        = ((step & 1) ? state.infected_individuals_even_time_steps : state.infected_individuals_odd_time_steps);
+        infected_this_time_step        = ((step & 1) ? state.infected_individuals_odd_time_steps  : state.infected_individuals_even_time_steps);
+        infected_timers_last_time_step = ((step & 1) ? state.infected_timers_even_time_steps : state.infected_timers_odd_time_steps);
+        infected_timers_this_time_step = ((step & 1) ? state.infected_timers_odd_time_steps  : state.infected_timers_even_time_steps);
 
         // with potential concurrent kernels I may need to change this?
         if ( (state.counters->infected_previously + state.counters->exposed_previously) > 0 )
@@ -109,10 +117,10 @@ int main(int argc, const char* argv[])
             flu_exposed<<<grid, block>>>(
                 step,
                 config.infectious_duration, config.infectious_duration_std,
-                previously_exposed, previous_timers_exp, state.counters->exposed_previously,
+                exposed_last_time_step, exposure_timers_last_time_step, state.counters->exposed_previously,
                 state.status_v,
-                currently_exposed, current_timers_exp, &state.counters->exposed_currently,
-                currently_infected, current_timers_inf, &state.counters->infected_currently,
+                exposed_this_time_step, exposure_timers_this_time_step, &state.counters->exposed_currently,
+                infected_this_time_step, infected_timers_this_time_step, &state.counters->infected_currently,
                 state.tx_events,
                 state.prngStates
             );
@@ -123,11 +131,12 @@ int main(int argc, const char* argv[])
                 step,
                 state.population_size, state.max_connections,
                 config.exposed_duration, config.exposed_duration_std,
-                state.network_m, state.connect_m, state.beta_factor,
-                previously_infected, previous_timers_inf, state.counters->infected_previously,
+                state.network_m, state.connect_m,
+                state.rx_modifiers, state.tx_modifiers,
+                infected_last_time_step, infected_timers_last_time_step, state.counters->infected_previously,
                 state.status_v,
-                currently_exposed, current_timers_exp, &state.counters->exposed_currently,
-                currently_infected, current_timers_inf, &state.counters->infected_currently,
+                exposed_this_time_step, exposure_timers_this_time_step, &state.counters->exposed_currently,
+                infected_this_time_step, infected_timers_this_time_step, &state.counters->infected_currently,
                 &state.counters->transmissions, state.tx_events,
                 state.prngStates
             );
@@ -139,7 +148,7 @@ int main(int argc, const char* argv[])
                 step, state.population_size, &state.counters->importations,
                 config.import_duration, config.import_duration_std,
                 state.status_v,
-                currently_exposed, current_timers_exp, &state.counters->exposed_currently,
+                exposed_this_time_step, exposure_timers_this_time_step, &state.counters->exposed_currently,
                 &state.counters->transmissions, state.tx_events,
                 state.prngStates
                 );
@@ -147,11 +156,13 @@ int main(int argc, const char* argv[])
             CheckReturn(cudaDeviceSynchronize());
             CheckReturn(cudaGetLastError());
 
+            process_interventions(step, config, state);
+
             extinction_duration = 0;
 
             if (vac_start == step)
             {
-                flu_vaccinate<<<grid, block>>>(state.beta_factor, config.vac_effectiveness[vaccination],
+                flu_vaccinate<<<grid, block>>>(state.rx_modifiers, config.vac_effectiveness[vaccination],
                 config.vac_coverage[vaccination],
                 state.population_size, state.prngStates);
                 ++vaccination;
@@ -169,14 +180,14 @@ int main(int argc, const char* argv[])
 
             if ( !config.quiet )
             {
-                DisplayInfected( currently_exposed, current_timers_exp, state.counters->exposed_currently,
-                currently_infected, current_timers_inf, state.counters->infected_currently );
+                DisplayInfected( exposed_this_time_step, exposure_timers_this_time_step, state.counters->exposed_currently,
+                infected_this_time_step, infected_timers_this_time_step, state.counters->infected_currently );
             }
         }
         else
         {
             ++extinction_duration;
-            if(extinction_duration > config.reseed_time)
+            if ( extinction_duration > config.reseed_time )
             {
                 std::cout << "No remaining exposed or infected for " << extinction_duration << " days at time step " << step << '.' << std::endl;
                 break;
@@ -199,35 +210,39 @@ void ShowHelp(const char* name)
 {
     std::cout << std::endl;
     std::cout << name << ':' << std::endl;
-    std::cout << "\t--population:#       - population size [" << DEFAULT_POP << ']' << std::endl;
-    std::cout << "\t--connections:#      - per agent network degree [" << DEFAULT_CONS << ']' << std::endl;
-    std::cout << "\t--exposures:#        - number of initial exposed [" << DEFAULT_EXPS << ']' << std::endl;
-    std::cout << "\t--infections:#       - number of initial infections [" << DEFAULT_INFS << ']' << std::endl;
-    std::cout << "\t--time:#             - number of time steps [" << DEFAULT_STEPS << ']' << std::endl;
-    std::cout << "\t--durationE:#        - mean exposure duration (days) [" << exp(DEFAULT_EXPOSED_DURATION_MEAN) << ']' << std::endl;
-    std::cout << "\t--stddevE:#          - exposure duration std dev (days) [" << exp(DEFAULT_EXPOSED_DURATION_STD) << ']' << std::endl;
-    std::cout << "\t--durationI:#        - mean infectious duration (days) [" << exp(DEFAULT_INFECTIOUS_DURATION_MEAN) << ']' << std::endl;
-    std::cout << "\t--stddevI:#          - infectious duration std dev (days) [" << exp(DEFAULT_INFECTIOUS_DURATION_STD) << ']' << std::endl;
-    std::cout << "\t--r0:#               - mean r0 [" << exp(DEFAULT_R0) << ']' << std::endl;
-    std::cout << "\t--stddevr0:#         - r0 std dev [" << exp(DEFAULT_R0_STD) << ']' << std::endl;
-    std::cout << "\t--seed:#             - random number seed [" << DEFAULT_SEED << ']' << std::endl;
-    std::cout << "\t--input:filename     - name of file with network data [ none ]" << std::endl;
-    std::cout << "\t--output:filename    - name of file for transmission data [ '" << DEFAULT_OUTPUT << "' ]" << std::endl;
-    std::cout << "\t--network:filename   - name of file for saving network data [ none ]" << std::endl;
-    std::cout << "\t--quiet              - do not display state during execution" << std::endl;
-    std::cout << "\t--debug              - display debugging information" << std::endl;
-    std::cout << "\t--vaccinations:#     - number of vaccination events [" << DEFAULT_VACCINATIONS << "]" << std::endl;
-    std::cout << "\t--vacTimes:#,#       - time points to apply vaccination [none]" << std::endl;
-    std::cout << "\t--vacEffect:#,#      - effectiveness of each intervention [none]" << std::endl;
-    std::cout << "\t--vacCoverage:#,#    - coverage of each intervention [none]" << std::endl;
-    std::cout << "\t--importMag:#        - magitude of the importations [" << DEFAULT_IMPORTATION_MAG << "]" << std::endl;
-    std::cout << "\t--importDoubleTime:# - doubling time of the importations (days) [" << DEFAULT_IMPORTATION_DOUBLING << "]" << std::endl;
-    std::cout << "\t--durationImport:#   - mean exposure time (left) for imported cases (days) [" << DEFAULT_IMPORTATION_DURATION_MEAN << "]" << std::endl;
-    std::cout << "\t--stddevImport:#     - exposed time std dev of the imported cases (days) [" << DEFAULT_IMPORTATION_DURATION_STD << "]" << std::endl;
-    std::cout << "\t--reseedTime:#       - maximum number of days without infection before ending sim (days) [" << DEFAULT_RESEED_TIME << "]" << std::endl;
+    std::cout << "\t--population:#        - population size [" << DEFAULT_POP << ']' << std::endl;
+    std::cout << "\t--connections:#       - per agent network degree [" << DEFAULT_CONS << ']' << std::endl;
+    std::cout << "\t--exposures:#         - number of initial exposed [" << DEFAULT_EXPS << ']' << std::endl;
+    std::cout << "\t--infections:#        - number of initial infections [" << DEFAULT_INFS << ']' << std::endl;
+    std::cout << "\t--time:#              - number of time steps [" << DEFAULT_STEPS << ']' << std::endl;
+    std::cout << "\t--durationE:#         - mean exposure duration (days) [" << exp(DEFAULT_EXPOSED_DURATION_MEAN) << ']' << std::endl;
+    std::cout << "\t--stddevE:#           - exposure duration std dev (days) [" << exp(DEFAULT_EXPOSED_DURATION_STD) << ']' << std::endl;
+    std::cout << "\t--durationI:#         - mean infectious duration (days) [" << exp(DEFAULT_INFECTIOUS_DURATION_MEAN) << ']' << std::endl;
+    std::cout << "\t--stddevI:#           - infectious duration std dev (days) [" << exp(DEFAULT_INFECTIOUS_DURATION_STD) << ']' << std::endl;
+    std::cout << "\t--r0:#                - mean r0 [" << exp(DEFAULT_R0) << ']' << std::endl;
+    std::cout << "\t--stddevr0:#          - r0 std dev [" << exp(DEFAULT_R0_STD) << ']' << std::endl;
+    std::cout << "\t--seed:#              - random number seed [" << DEFAULT_SEED << ']' << std::endl;
+    std::cout << "\t--input:filename      - name of file with network data [ none ]" << std::endl;
+    std::cout << "\t--output:filename     - name of file for transmission data [ '" << DEFAULT_OUTPUT << "' ]" << std::endl;
+    std::cout << "\t--network:filename    - name of file for saving network data [ none ]" << std::endl;
+    std::cout << "\t--attributes:filename - name of file with attribute specifications [ none ]" << std::endl;
+    std::cout << "\t--campaign:filename   - name of file with campaign interventions [ none ]" << std::endl;
+    std::cout << "\t--quiet               - do not display state during execution" << std::endl;
+    std::cout << "\t--debug               - display debugging information" << std::endl;
+    std::cout << "\t--vaccinations:#      - number of vaccination events [" << DEFAULT_VACCINATIONS << "]" << std::endl;
+    std::cout << "\t--vacTimes:#,#        - time points to apply vaccination [none]" << std::endl;
+    std::cout << "\t--vacEffect:#,#       - effectiveness of each intervention [none]" << std::endl;
+    std::cout << "\t--vacCoverage:#,#     - coverage of each intervention [none]" << std::endl;
+    std::cout << "\t--importMag:#         - magitude of the importations [" << DEFAULT_IMPORTATION_MAG << "]" << std::endl;
+    std::cout << "\t--importDoubleTime:#  - doubling time of the importations (days) [" << DEFAULT_IMPORTATION_DOUBLING << "]" << std::endl;
+    std::cout << "\t--durationImport:#    - mean exposure time (left) for imported cases (days) [" << DEFAULT_IMPORTATION_DURATION_MEAN << "]" << std::endl;
+    std::cout << "\t--stddevImport:#      - exposed time std dev of the imported cases (days) [" << DEFAULT_IMPORTATION_DURATION_STD << "]" << std::endl;
+    std::cout << "\t--reseedTime:#        - maximum number of days without infection before ending sim (days) [" << DEFAULT_RESEED_TIME << "]" << std::endl;
     std::cout << std::endl;
     exit(-1);
 }
+
+bool fexists(const std::string& filename);
 
 void ValidateArguments(Configuration& config)
 {
@@ -260,15 +275,27 @@ void ValidateArguments(Configuration& config)
             std::cerr << "The coverage of a vaccine must be between 0 and 1 (0% and 100%) "<< std::endl; okay = false;
         }
     }
-    if ( config.import_mag < 0.0f )               { std::cerr << "magitude of importations must be >= 0"      << std::endl; okay = false; }
+    if ( config.import_mag < 0.0f )               { std::cerr << "magnitude of importations must be >= 0"     << std::endl; okay = false; }
     if ( config.import_rate < 0.0f )              { std::cerr << "doubling time of importations must be >= 0" << std::endl; okay = false; }
     if ( config.import_duration < 0.0f )          { std::cerr << "imported exposed duration must be >= 0"     << std::endl; okay = false; }
     if ( config.import_duration_std < 0.0f )      { std::cerr << "imported exposed duration std must be >= 0" << std::endl; okay = false; }
     //if ( config.reseed_time < 0 )                 { std::cerr << "reseeding time must be >= 0"                << std::endl; okay = false; }
 
+    if ( (config.attributes_filename.size() !=0) and !fexists( config.attributes_filename ) ) { std::cerr << "specified attributes file '" << config.attributes_filename.c_str() << "' does not exist" << std::endl; okay = false; }
+    if ( (config.campaign_filename.size() != 0)  and !fexists( config.campaign_filename ) )   { std::cerr << "specific campaign file '" << config.campaign_filename.c_str() << "' does not exist" << std::endl; okay = false; }
+
     if ( !okay ) { exit(-1); }
 
     return;
+}
+
+bool fexists(const std::string& filename)
+{
+  std::ifstream ifile(filename.c_str());
+  bool exists = bool(ifile);
+  ifile.close();
+
+  return exists;
 }
 
 void PrintArray(float* array, int n);
@@ -307,6 +334,8 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
             else if ( strncmp(arg, "input",            len) == 0 ) { config.input_filename          = std::string(value); }
             else if ( strncmp(arg, "output",           len) == 0 ) { config.output_filename         = std::string(value); }
             else if ( strncmp(arg, "network",          len) == 0 ) { config.network_filename        = std::string(value); }
+            else if ( strncmp(arg, "attributes",       len) == 0 ) { config.attributes_filename     = std::string(value); }
+            else if ( strncmp(arg, "campaign",         len) == 0 ) { config.campaign_filename       = std::string(value); }
             else if ( strncmp(arg, "vaccinations",     len) == 0 )
             {
                 config.vac_num           = atoi(value);
@@ -358,6 +387,8 @@ void ProcessCommandLine(int argc, const char* argv[], Configuration& config)
     std::cout << "Input (network) filename:          " << config.input_filename.c_str()       << std::endl;
     std::cout << "Output (transmissions) filename:   " << config.output_filename.c_str()      << std::endl;
     std::cout << "Network (save) filename:           " << config.network_filename.c_str()     << std::endl;
+    std::cout << "Attributes specification filename: " << config.attributes_filename.c_str()  << std::endl;
+    std::cout << "Campaign specification filename:   " << config.campaign_filename.c_str()    << std::endl;
     std::cout << "Quiet mode:                        " << (config.quiet ? "on" : "off")       << std::endl;
     std::cout << "Debugging mode:                    " << (config.debug ? "on" : "off")       << std::endl;
     std::cout << "Number of vaccination events:      " << config.vac_num                      << std::endl;
@@ -467,27 +498,35 @@ void DisplayInfected( IND_TYPE* exposed_queue, TIMER_TYPE* exposed_timers, uint3
 
 void AllocateState(SimulationState& state, Configuration& config)
 {
-    CheckReturn(cudaMallocManaged(&state.network_m,      config.population_size * config.max_connections * sizeof(IND_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.connect_m,      config.population_size * config.max_connections * sizeof(CON_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.beta_factor,    config.population_size * sizeof(CON_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.prngStates,     config.population_size * sizeof(curandState)));
-    CheckReturn(cudaMallocManaged(&state.queue_a_exp,    config.population_size * sizeof(IND_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.queue_b_exp,    config.population_size * sizeof(IND_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.queue_a_inf,    config.population_size * sizeof(IND_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.queue_b_inf,    config.population_size * sizeof(IND_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.timers_a_exp,   config.population_size * sizeof(TIMER_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.timers_b_exp,   config.population_size * sizeof(TIMER_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.timers_a_inf,   config.population_size * sizeof(TIMER_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.timers_b_inf,   config.population_size * sizeof(TIMER_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.status_v,       config.population_size * sizeof(INF_TYPE)));
-    CheckReturn(cudaMallocManaged(&state.tx_events,      config.population_size * sizeof(TxEvent)));
-    CheckReturn(cudaMallocManaged(&state.counters,       sizeof(Counters)));
+    CheckReturn(cudaMallocManaged(&state.network_m,                            config.population_size * config.max_connections * sizeof(IND_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.connect_m,                            config.population_size * config.max_connections * sizeof(CON_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.rx_modifiers,                         config.population_size * sizeof(CON_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.tx_modifiers,                         config.population_size * sizeof(CON_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.prngStates,                           config.population_size * sizeof(curandState)));
+    CheckReturn(cudaMallocManaged(&state.exposed_individuals_odd_time_steps,   config.population_size * sizeof(IND_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.exposed_individuals_even_time_steps,  config.population_size * sizeof(IND_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.infected_individuals_odd_time_steps,  config.population_size * sizeof(IND_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.infected_individuals_even_time_steps, config.population_size * sizeof(IND_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.exposure_timers_odd_time_steps,       config.population_size * sizeof(TIMER_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.exposure_timers_even_time_steps,      config.population_size * sizeof(TIMER_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.infected_timers_odd_time_steps,       config.population_size * sizeof(TIMER_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.infected_timers_even_time_steps,      config.population_size * sizeof(TIMER_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.status_v,                             config.population_size * sizeof(INF_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.tx_events,                            config.population_size * sizeof(TxEvent)));
+    CheckReturn(cudaMallocManaged(&state.counters,                             sizeof(Counters)));
+    CheckReturn(cudaMallocManaged(&state.scratch,                              (1 << (sizeof(ATTR_TYPE)*8)) * sizeof(uint8_t)));
+    CheckReturn(cudaMallocManaged(&state.intervene,                            config.population_size * sizeof(uint8_t)));
+    CheckReturn(cudaMallocManaged(&state.modifier,                             config.population_size * sizeof(CON_TYPE)));
+
+    CheckReturn(cudaMallocManaged(&state.active_interventions,                 config.population_size * sizeof(uint8_t)));
+    CheckReturn(cudaMallocManaged(&state.intervention_timers,                  config.population_size * state.max_interventions * sizeof(TIMER_TYPE)));
+    CheckReturn(cudaMallocManaged(&state.intervention_modifiers,               config.population_size * state.max_interventions * sizeof(CON_TYPE)));
 }
 
 void InitializePrngStates(SimulationState& state, Configuration& config);
 void InitializeNetwork(SimulationState& state, Configuration& config);
 void SeedInfections(SimulationState& state, Configuration& config, std::mt19937_64& generator);
-void ZeroVectors(SimulationState& state, uint32_t simulation_steps);
+void InitializeVectors(SimulationState& state, uint32_t simulation_steps);
 
 void InitializeState(SimulationState& state, Configuration& config, std::mt19937_64& generator)
 {
@@ -503,7 +542,7 @@ void InitializeState(SimulationState& state, Configuration& config, std::mt19937
 
     InitializePrngStates(state, config);
     InitializeNetwork(state, config);
-    ZeroVectors(state, config.simulation_steps);
+    InitializeVectors(state, config.simulation_steps);
     SeedInfections(state, config, generator);
 }
 
@@ -622,13 +661,13 @@ void SeedInfections(SimulationState& state, Configuration& config, std::mt19937_
         {
             index = uniform_int(generator);
         } while (state.status_v[index] != 0);
-        state.queue_a_exp[j] = index;
-        state.timers_a_exp[j] = TIMER_TYPE(std::max(uint32_t(duration(generator)+0.5), uint32_t(1))); // At least one day of infectiousness, also the +0.5 is so the cast to int rounds correctly
+        state.exposed_individuals_odd_time_steps[j] = index;
+        state.exposure_timers_odd_time_steps[j] = TIMER_TYPE(std::max(uint32_t(duration(generator)+0.5), uint32_t(1))); // At least one day of infectiousness, also the +0.5 is so the cast to int rounds correctly
         state.status_v[index] = STATUS_EXPOSED;
 
         if (config.debug)
         {
-            std::cout << "Individual " << index << " placed at location " << j << " with exposure period " << uint32_t(state.timers_a_exp[j]) << std::endl;
+            std::cout << "Individual " << index << " placed at location " << j << " with exposure period " << uint32_t(state.exposure_timers_odd_time_steps[j]) << std::endl;
         }
     }
 
@@ -642,27 +681,27 @@ void SeedInfections(SimulationState& state, Configuration& config, std::mt19937_
         {
             index = uniform_int(generator);
         } while (state.status_v[index] != 0);
-        state.queue_a_inf[j] = index;
-        state.timers_a_inf[j] = TIMER_TYPE(std::max(uint32_t(duration(generator)+0.5), uint32_t(1))); // At least one day of infectiousness, also the +0.5 is so the cast to int rounds correctly
+        state.infected_individuals_odd_time_steps[j] = index;
+        state.infected_timers_odd_time_steps[j] = TIMER_TYPE(std::max(uint32_t(duration(generator)+0.5), uint32_t(1))); // At least one day of infectiousness, also the +0.5 is so the cast to int rounds correctly
         state.status_v[index] = STATUS_INFECTIOUS;
 
         if (config.debug)
         {
-            std::cout << "Individual " << index << " placed at location " << j << " with infectious period " << uint32_t(state.timers_a_inf[j]) << std::endl;
+            std::cout << "Individual " << index << " placed at location " << j << " with infectious period " << uint32_t(state.infected_timers_odd_time_steps[j]) << std::endl;
         }
     }
 
     state.counters->infected_currently = config.initial_infections;
 }
 
-// TODO - could do this on the GPU with a tiny kernel
-void ZeroVectors(SimulationState& state, uint32_t simulation_steps)
+void InitializeVectors(SimulationState& state, uint32_t simulation_steps)
 {
     dim3 blocks(BLOCK_SIZE, 1, 1);
     dim3 grid((state.population_size + BLOCK_SIZE - 1) / BLOCK_SIZE, 1, 1);
-    initialize_vectors<<<grid, blocks>>>(state.status_v, state.beta_factor, state.tx_events, state.population_size);
+    initialize_vectors<<<grid, blocks>>>(state.status_v, state.rx_modifiers, state.tx_modifiers, state.tx_events, state.population_size);
     CheckReturn(cudaDeviceSynchronize());
     CheckReturn(cudaGetLastError());
+    CheckReturn(cudaMemset( state.active_interventions, 0, state.population_size * sizeof(uint8_t) ));
 }
 
 void WriteTransmissionEventsToFile( SimulationState& state, Configuration& config )

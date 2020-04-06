@@ -1,0 +1,3 @@
+tag,type,trigger,trigger_value,duration,factor,attribute,attribute_value
+# Reduce transmission for all individuals by 7/8 (0.125) at **time** 25.
+scheduled,2,TIME,25,60,0.125,primary,0

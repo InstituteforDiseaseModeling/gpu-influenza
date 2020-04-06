@@ -1,0 +1,2 @@
+# age attribute, distributed 1/4, 1/2, 1/4 to <20, 20-60, >60
+ages:ages.bin

@@ -45,14 +45,14 @@ struct SimulationState {
     IND_TYPE*       network_m;
     CON_TYPE*       connect_m;
     curandState*    prngStates;
-    IND_TYPE*       queue_a_exp;
-    IND_TYPE*       queue_b_exp;
-    IND_TYPE*       queue_a_inf;
-    IND_TYPE*       queue_b_inf;
-    TIMER_TYPE*     timers_a_exp;
-    TIMER_TYPE*     timers_b_exp;
-    TIMER_TYPE*     timers_a_inf;
-    TIMER_TYPE*     timers_b_inf;
+    IND_TYPE*       exposed_individuals_odd_time_steps;
+    IND_TYPE*       exposed_individuals_even_time_steps;
+    IND_TYPE*       infected_individuals_odd_time_steps;
+    IND_TYPE*       infected_individuals_even_time_steps;
+    TIMER_TYPE*     exposure_timers_odd_time_steps;
+    TIMER_TYPE*     exposure_timers_even_time_steps;
+    TIMER_TYPE*     infected_timers_odd_time_steps;
+    TIMER_TYPE*     infected_timers_even_time_steps;
     INF_TYPE*       status_v;
     TxEvent*        tx_events;
     Counters*       counters;
@@ -65,14 +65,14 @@ struct SimulationState {
 |network_m|pointer to the "matrix" of edges - see below|
 |connect_m|pointer to the "matrix" of connection weights - see below|
 |prngStates|pointer to ```population_size``` ```curandState``` structs, one per agent|
-|queue_a_exp|pointer to up to ```population_size``` entries of exposed agent indices, double buffered with ```queue_b_exp```|
-|queue_b_exp|pointer to up to ```population_size``` entries of exposed agent indices, double buffered with ```queue_a_exp```|
-|queue_a_inf|pointer to up to ```population_size``` entries of infectious agent indices, double buffered with ```queue_b_inf```|
-|queue_b_inf|pointer to up to ```population_size``` entries of infectious agent indices, double buffered with ```queue_a_inf```|
-|timers_a_exp|pointer to up to ```population_size``` exposed (latent) timers, one for each entry of ```queue_a_exp```, double buffered with ```timers_b_exp```|
-|timers_b_exp|pointer to up to ```population_size``` exposed (latent) timers, one for each entry of ```queue_b_exp```, double buffered with ```timers_a_exp```|
-|timers_a_inf|pointer to up to ```population_size``` infection timers, one for each entry of ```queue_a_inf```, double buffered with ```timers_b_inf```|
-|timers_b_inf|pointer to up to ```population_size``` infection timers, one for each entry of ```queue_b_inf```, double buffered with ```timers_a_inf```|
+|exposed_individuals_odd_time_steps|pointer to up to ```population_size``` entries of exposed agent indices, double buffered with ```exposed_individuals_even_time_steps```|
+|exposed_individuals_even_time_steps|pointer to up to ```population_size``` entries of exposed agent indices, double buffered with ```exposed_individuals_odd_time_steps```|
+|infected_individuals_odd_time_steps|pointer to up to ```population_size``` entries of infectious agent indices, double buffered with ```infected_individuals_even_time_steps```|
+|infected_individuals_even_time_steps|pointer to up to ```population_size``` entries of infectious agent indices, double buffered with ```infected_individuals_odd_time_steps```|
+|exposure_timers_odd_time_steps|pointer to up to ```population_size``` exposed (latent) timers, one for each entry of ```exposed_individuals_odd_time_steps```, double buffered with ```exposure_timers_even_time_steps```|
+|exposure_timers_even_time_steps|pointer to up to ```population_size``` exposed (latent) timers, one for each entry of ```exposed_individuals_even_time_steps```, double buffered with ```exposure_timers_odd_time_steps```|
+|infected_timers_odd_time_steps|pointer to up to ```population_size``` infection timers, one for each entry of ```infected_individuals_odd_time_steps```, double buffered with ```infected_timers_even_time_steps```|
+|infected_timers_even_time_steps|pointer to up to ```population_size``` infection timers, one for each entry of ```infected_individuals_even_time_steps```, double buffered with ```infected_timers_odd_time_steps```|
 |status_v|pointer to ```population_size``` entries of "status" indicating the state (susceptible: 0, exposed: 1, infectious: 2, recovered: 3) of i<sup>th</sup> agent|
 |tx_events|pointer to population_size entries of ```TxEvent``` records|
 |counters|pointer to ```Counters``` struct|
@@ -136,3 +136,47 @@ Some options:
 * Given a total population, P, and maximum network degree, C, allocate space for PxC transmissions (worst case).
   * Proposal #1: allocate PxC transmission event slots and record as they occur. Requires little post-processing.
   * Proposal #2: allocate memory for PxC transmission times, record time of transmission from individual A to individual B (must be connected in the network) in the corresponding slot. Requires some post-processing - scan for transmission times (>= 0), source is implied in the index to the array, destination has to be looked up from the connection matrix.
+
+## Attributes and Interventions
+
+Attributes are ATTR_TYPE (currently uint16_t) values assigned to each node. Attributes for a simulation are specified by a combination of an entry in a text file (`attributes.txt` for example) which consists of key:value pairs where the key is the attribute name used in the code and referenced by interventions and the value is the filename for the file containing the attribute data. Use the `--attributes:` command line option with a filename to specify the attributes file (can be shortened to `--attr:`). See format/schema below.
+
+There are currently 4 interventions (vaccination is configured separately with command line options):
+
+1. targeting nodes by a particular attribute/attribute value (`ATTRIBUTE` intervention).
+2. targeting nodes by attribute/attribute value matching the attribute/attribute value of a currently infected node (`NODEMATCHING` intervention). E.g., if there are two infected nodes, one with "age" value 0 and another with "age" value 2, target all nodes with "age" value 0 or 2.
+3. targeting all neighbors of currently infected nodes (`NEIGHBOR` intervention).
+4. targeting neighbors of currently infected nodes with attribute/attribute value matching the infected node's attribute/attribute value (`NEIGHBROMATCHING` intervention). E.g., if an infected node has "daytime" attribute value 42, target the neighbors of that node which also have "daytime" value 42.
+
+Interventions are specified with the `--campaign:` (also `--camp:`) command line argument with a filename. The filename specifies a text CSV file with the desired interventions. See format/schema below.
+
+### Sample attribute.txt file
+
+Attribute files may contain comment lines prefixed with `#`.
+
+```text
+# Age bin buckets, 0 = <20 (25%), 1 = 20-60 (50%), 2 = >60 (25%)
+age:ages.bin
+# Household identifiers, nodes are assigned to households with household sizes selected from the
+# following distribution:
+# 1 - 28.37%, 2 - 34.51%, 3 - 15.07%, 4 - 12.76%, 5 - 05.78%, 6 - 02.26%, 7 - 01.25%
+household:households.bin
+# Locales are determined by the following formula: schools ~1K students, workplaces ~100 employees, "hangouts" ~50 participants
+daytime:locales.bin
+```
+
+### Attribute data
+
+Attribute data is a plain binary file with `population_size` entries of ATTR_TYPE (see `flu-types.h`, currently `uint16_t`).
+
+For example, if `population_size` is 10,000 the attribute data file, e.g., `ages.bin`, should be 20,000 bytes in size with 10,000 `uint16_t` entries.
+
+### Interventions CSV file
+
+A campaign (interventions) file consists of a header (required), optional single line comments, and one or more intervention specifications:
+
+```text
+tag,type,trigger,trigger_value,duration,factor,attribute,attribute_value
+# When infected count >=2500, reduce transmission from all nodes with "ages" attribute == 1 for 60 days (time steps).
+threshold,ATTRIBUTE,COUNT,2500,60,0.0625,ages,1
+```

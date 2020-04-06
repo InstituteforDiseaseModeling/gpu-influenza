@@ -1,0 +1,2 @@
+tag,type,trigger,trigger_value,duration,factor,attribute,attribute_value
+scheduled,3,TIME,25,60,0.125,primary,0

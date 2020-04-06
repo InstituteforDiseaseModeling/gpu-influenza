@@ -1,0 +1,4 @@
+# 0 = <20, 1 = 20-60, 2 = >60
+ages:ages.bin
+# school (age<20) ~1K/school, workplaces (20<=age<=60) ~128/business, hangouts (age>60) ~32/location
+primary:primary.bin

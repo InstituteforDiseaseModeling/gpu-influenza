@@ -1,0 +1,3 @@
+tag,type,trigger,trigger_value,duration,factor,attribute,attribute_value
+# reduce transmission from working age individuals (age attribute == 1) for 14 days when infectious count >= 2500
+threshold,attribute,COUNT,2500,14,0.0625,ages,1

@@ -11,7 +11,9 @@ __global__ void initialize_prng(curandState* prngState, uint32_t population, uin
 __global__ void flu_vaccinate(CON_TYPE* beta_adjust, float effectiveness, float coverage,
                                 uint32_t popualtion, curandState* prngStates);
 
-__global__ void initialize_vectors(INF_TYPE* status_v, CON_TYPE* beta_adjust, TxEvent* transmission_events,
+__global__ void initialize_vectors(INF_TYPE* status_v,
+                                    CON_TYPE* acq_modifier, CON_TYPE* tx_modifiers,
+                                    TxEvent* transmission_events,
                                     uint32_t population_count);
 
 __global__ void setup_network(
@@ -60,7 +62,8 @@ __global__ void flu_kernel(
     float std_duration_inc,         // RO
     IND_TYPE* network_matrix,       // RO
     CON_TYPE* connections_matrix,   // RO
-    CON_TYPE* beta_adjust,          // RO
+    CON_TYPE* rx_modifiers,          // RO
+    CON_TYPE* tx_modifiers,          // RO
     IND_TYPE* infected_queue_in,    // RO
     TIMER_TYPE* inf_timers_in,      // RO
     uint32_t infected_size,         // RO

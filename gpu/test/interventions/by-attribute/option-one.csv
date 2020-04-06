@@ -1,0 +1,2 @@
+tag,type,trigger,trigger_value,duration,factor,attribute,attribute_value
+threshold,1,COUNT,2500,60,0.0625,ages,1

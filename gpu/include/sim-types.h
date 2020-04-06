@@ -7,6 +7,7 @@
 #define TIMER_TYPE  uint8_t
 #define INF_TYPE    uint32_t
 #define MASK_TYPE   uint8_t
+#define ATTR_TYPE   uint16_t
 
 #define STATUS_SUSCEPTIBLE (0)
 #define STATUS_EXPOSED     (1)
